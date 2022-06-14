@@ -16,11 +16,15 @@ setup(
     'machine learning',
   ],
   install_requires=[
+    'kaggle',
     'numpy',
     'packaging',
+    'pandas',
+    'sklearn',
+    'tensorflow',
     'torch>=1.6',
     'transformers',
-    'tqdm'
+    'tqdm',
   ],
   classifiers=[
     'Development Status :: 4 - Beta',
