@@ -21,6 +21,8 @@ setup(
     'packaging',
     'pandas',
     'sklearn',
+    'tensorflow>=2.9.1',
+    'tensorflow_datasets',
     'torch>=1.6',
     'transformers',
     'tqdm',
