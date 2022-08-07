@@ -1,6 +1,6 @@
 ## alien-ink
 
- `alien-ink` is a personal ml toolkit
+ `alien-ink` is a personal machine learning toolkit
 
 
 #### Install
