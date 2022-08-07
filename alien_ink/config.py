@@ -1,71 +1,146 @@
-""" Config management
+""" Config management and access
+
+Note that config.ink, config.kaggle, etc are automatically set at import
+time via a config file discovery and load procedure.
+
+Generally, it's best to have the following files in place:
+
+colab:
+/content/gdrive/My Drive/Colab Notebooks/alien-ink/[alien-ink.json,kaggle.json]
+
+mac/linux:
+/orb/alien-ink/[alien-ink.json,kaggle.json]
 
 """
 
 import json
 import os.path
+import sys
 
 
 #------------------------------------------------------------------------------
-# Configuration options
+# Main configuration
+#------------------------------------------------------------------------------
+
+# alien-ink
+ink_config_file = None
+ink = {}
+
+# Kaggle
+kaggle_config_dir = None
+kaggle = {}
+
+
+#------------------------------------------------------------------------------
+# Static internal configuration details
 #------------------------------------------------------------------------------
 
 # Google Colab & Drive
-gdrive_root = "/content/gdrive"
-
-
-# Kaggle
-kaggle_username = None
-kaggle_key = None
-
-
-#------------------------------------------------------------------------------
-# Config loading and utils
-#------------------------------------------------------------------------------
+_gdrive_root = "/content/gdrive"
 
 # Overall config sources
-config_dirs = ["/orb", os.path.expanduser("~/"), ]
-config_file = ".alien-ink-secrets.json"
+_config_dirs = (os.path.join(os.path.expanduser("~/"), ".alien-ink"), 
+               "/orb/alien-ink/",
+               "/content/gdrive/My Drive/Colab Notebooks/alien-ink/",
+               )
+_config_file_ink = "alien-ink.json"
+_config_file_kaggle = "kaggle.json"
 
 
-def load():
-    """Load configuration"""
+#------------------------------------------------------------------------------
+# Config helpers
+#------------------------------------------------------------------------------
 
-    # Find config file or return early
-    cf = None
-    for config_dir in config_dirs:
-        cf_candidate = os.path.join(config_dir, config_file)
+
+def in_colab():
+    """Return true if inside a google collab notebook"""
+    if 'google.colab' in sys.modules:
+        return True
+    return False
+
+
+def maybe_setup_colab():
+    """Setup any colab stuff"""
+    if in_colab():
+        from google.colab import drive
+        drive.mount('/content/gdrive')
+
+
+def load_config_ink():
+    """Find the alien-ink config file and load"""
+
+    # find config file
+    global ink_config_file
+    for _config_dir in _config_dirs:
+        cf_candidate = os.path.join(_config_dir, _config_file_ink)
         if os.path.exists(cf_candidate):
-            cf = cf_candidate
+            ink_config_file = cf_candidate
             break
 
-    if cf is None:
-        return
+    # load the config file contents
+    global alien
+    if ink_config_file:
+        with open(ink_config_file, 'r') as cfile:
+            alien = json.loads(cfile.read())
+    else:
+        raise Exception("alien ink config file is missing")
 
-    # Load the config file contents
-    conf = None
-    with open(cf, 'r') as cfile:
-        conf = json.loads(cfile.read())
 
-    # Custom overrides
-    if "kaggle_username" in conf:
-        kaggle_username = conf["kaggle_username"]
-        os.environ["KAGGLE_USERNAME"] = kaggle_username
+def load_config_kaggle():
+    """Initialize items needed prior to kaggle imports
 
-    if "kaggle_key" in conf:
-        kaggle_key = conf["kaggle_key"]
-        os.environ["KAGGLE_KEY"] = kaggle_key
+    In particular, KAGGLE_CONFIG_DIR needs to be set prior to the following
+    import, if the kaggle config file is anywhere but the default home dir. So,
+    in order to standardize and automate across my different environments 
+    including colab, I override the config path.
+    """
+
+    # find the config file
+    global kaggle_config_dir
+    for _config_dir in _config_dirs:
+        cf_candidate = os.path.join(_config_dir, _config_file_kaggle)
+        if os.path.exists(cf_candidate):
+            kaggle_config_dir = _config_dir  # note, dir not full path to file
+            break
+
+    # set the path as an env later used by the kaggle lib
+    global kaggle
+    if kaggle_config_dir:
+        os.environ["KAGGLE_CONFIG_DIR"] = kaggle_config_dir
+        with open(cf_candidate, 'r') as cfile:
+            kaggle = json.loads(cfile.read())
+    else:
+        raise Exception("kaggle config file is missing")
 
     return
 
 
+def __autoload():
+    """Automatically find and setup various configs"""
+    maybe_setup_colab()
+    load_config_ink()
+    load_config_kaggle()
+
+
+#------------------------------------------------------------------------------
+# config automation
+#------------------------------------------------------------------------------
+
+# automatically run this at import time
+__autoload()
+
+
+
 if __name__ == "__main__":
 
-    load()
+    from pprint import pprint
 
+    print("")
+    print("alien-ink config:")
+    pprint(alien, indent=2, width=50)
 
+    print("")
+    print("kaggle config:")
+    pprint(kaggle, indent=2, width=50)
 
-
-
-
-
+    print("")
