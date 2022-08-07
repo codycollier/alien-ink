@@ -1,19 +1,20 @@
 ## alien-ink
 
+ `alien-ink` is a personal ml toolkit
+
+
+#### Install
 [![PyPI version](https://badge.fury.io/py/alien-ink.svg)](https://badge.fury.io/py/alien-ink)
-
-
-### Install
 
 ```bash
 $ pip install alien-ink
 ```
 
-### Usage
+#### Usage
 
 ```python
 
-import alien_ink as ai
+import alien_ink as ink
 
-print(ai.stars)
+print(ink.stars)
 ```
