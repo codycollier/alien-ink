@@ -10,6 +10,7 @@ colab:
 
 mac/linux:
 /orb/alien-ink/[alien-ink.json,kaggle.json]
+~/.alien-ink/[alien-ink.json,kaggle.json]
 
 """
 
@@ -23,6 +24,7 @@ import sys
 #------------------------------------------------------------------------------
 
 # alien-ink
+ink_root = None
 ink_config_file = None
 ink = {}
 
@@ -68,22 +70,25 @@ def maybe_setup_colab():
 
 def load_config_ink():
     """Find the alien-ink config file and load"""
+    global ink_config_file, ink_root, ink
 
     # find config file
-    global ink_config_file
     for _config_dir in _config_dirs:
         cf_candidate = os.path.join(_config_dir, _config_file_ink)
         if os.path.exists(cf_candidate):
             ink_config_file = cf_candidate
+            ink_root = _config_dir
             break
 
     # load the config file contents
-    global alien
     if ink_config_file:
         with open(ink_config_file, 'r') as cfile:
-            alien = json.loads(cfile.read())
+            ink = json.loads(cfile.read())
+            ink["data_root"] = os.path.join(ink_root, "data-ink")
     else:
         raise Exception("alien ink config file is missing")
+
+    return
 
 
 def load_config_kaggle():
@@ -94,9 +99,9 @@ def load_config_kaggle():
     in order to standardize and automate across my different environments 
     including colab, I override the config path.
     """
+    global kaggle_config_dir, kaggle
 
     # find the config file
-    global kaggle_config_dir
     for _config_dir in _config_dirs:
         cf_candidate = os.path.join(_config_dir, _config_file_kaggle)
         if os.path.exists(cf_candidate):
@@ -104,11 +109,11 @@ def load_config_kaggle():
             break
 
     # set the path as an env later used by the kaggle lib
-    global kaggle
     if kaggle_config_dir:
         os.environ["KAGGLE_CONFIG_DIR"] = kaggle_config_dir
         with open(cf_candidate, 'r') as cfile:
             kaggle = json.loads(cfile.read())
+            kaggle["data_root"] = os.path.join(ink_root, "data-kaggle")
     else:
         raise Exception("kaggle config file is missing")
 
