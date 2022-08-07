@@ -6,7 +6,7 @@ setup(
   packages = find_packages(exclude=[]),
   version = __version__,
   license='MIT',
-  description = 'Alien Ink - a personal ml toolkit',
+  description = 'Alien Ink - a personal machine learning toolkit',
   author = 'Cody Collier',
   author_email = 'cody@telnet.org',
   long_description_content_type = 'text/markdown',
