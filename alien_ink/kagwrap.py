@@ -2,7 +2,7 @@
 
 """
 
-import config   # config must be loaded before kaggle
+from . import config   # config must be loaded before kaggle
 
 import os
 import sys
