@@ -31,18 +31,8 @@ def get_comp_data(competition_name):
         with zipfile.ZipFile(cdata_file) as z:
             z.extractall(cdata_root)
 
-    # load
-    df_trn = pandas.read_csv(csv_trn)
-    df_tst = pandas.read_csv(csv_tst)
-    return df_trn, df_tst
+    return csv_trn, csv_tst
 
 
-
-if __name__ == "__main__":
-
-    compname = 'digit-recognizer'
-    df_train, df_test = get_comp_data(compname)
-    print(df_test.head())
-    print(df_train.head())
 
 
