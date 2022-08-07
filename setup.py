@@ -21,7 +21,6 @@ setup(
     'packaging',
     'pandas',
     'sklearn',
-    'tensorflow',
     'torch>=1.6',
     'transformers',
     'tqdm',
