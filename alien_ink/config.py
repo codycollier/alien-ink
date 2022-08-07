@@ -136,16 +136,3 @@ __autoload()
 
 
 
-if __name__ == "__main__":
-
-    from pprint import pprint
-
-    print("")
-    print("alien-ink config:")
-    pprint(alien, indent=2, width=50)
-
-    print("")
-    print("kaggle config:")
-    pprint(kaggle, indent=2, width=50)
-
-    print("")
