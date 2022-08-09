@@ -120,19 +120,11 @@ def load_config_kaggle():
     return
 
 
-def __autoload():
+def autoload():
     """Automatically find and setup various configs"""
     maybe_setup_colab()
     load_config_ink()
     load_config_kaggle()
-
-
-#------------------------------------------------------------------------------
-# config automation
-#------------------------------------------------------------------------------
-
-# automatically run this at import time
-__autoload()
 
 
 

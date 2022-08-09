@@ -2,7 +2,8 @@
 
 """
 
-from . import config   # config must be loaded before kaggle
+from . import config
+config.autoload()     # config must be loaded before KaggleApi is imported
 
 import os
 import sys
