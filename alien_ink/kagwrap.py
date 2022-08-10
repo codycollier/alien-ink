@@ -5,6 +5,7 @@
 from . import config
 config.autoload()     # config must be loaded before KaggleApi is imported
 
+import datetime
 import os
 import sys
 import zipfile
@@ -35,5 +36,13 @@ def get_comp_data(competition_name):
     return csv_trn, csv_tst
 
 
+def comp_submit(competition_name, submission_csv, message):
 
+    stamp = datetime.datetime.now()
+    submission_message = f"{stamp} :: {message}"
+
+    kapi = KaggleApi()
+    kapi.authenticate()
+    sub = kapi.competition_submit(submission_csv, submission_message, competition_name)
+    return sub
 
