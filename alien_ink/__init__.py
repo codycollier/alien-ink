@@ -1,5 +1,6 @@
 
 from . import config
+from . import evaluate
 from . import kagwrap
 from . import version
 
