@@ -4,7 +4,7 @@
 [![PyPI version](https://badge.fury.io/py/alien-ink.svg)](https://badge.fury.io/py/alien-ink)
 
 
-My personal machine learning toolkit.
+...
 
 Software for an audience of one.
 
