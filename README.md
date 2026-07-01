@@ -4,5 +4,9 @@
 [![PyPI version](https://badge.fury.io/py/alien-ink.svg)](https://badge.fury.io/py/alien-ink)
 
 
-A personal toolkit
+My personal ml toolkit.
+
+Software for an audience of one.
+
+
 
