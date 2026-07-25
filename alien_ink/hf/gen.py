@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 import torch
-from transformers import GPT2LMHeadModel, GPT2Tokenizer
+from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 from alien_ink.device import device_info
 from alien_ink.hf.ds import HubTextSource, load_text_prompts
@@ -67,8 +67,8 @@ def pick_prompts(
 
 @torch.inference_mode()
 def generate_completion(
-    model: GPT2LMHeadModel,
-    tokenizer: GPT2Tokenizer,
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
     prompt: str,
     device: str,
     *,
