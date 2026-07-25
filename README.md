@@ -4,12 +4,10 @@
 [![PyPI version](https://badge.fury.io/py/alien-ink.svg)](https://badge.fury.io/py/alien-ink)
 
 
+This is software for an audience of one.
 
 
-...
-
-Software for an audience of one.
-
+---
 
 ## Running experiments
 
