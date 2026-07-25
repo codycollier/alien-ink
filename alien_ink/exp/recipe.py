@@ -60,6 +60,7 @@ class Gpt2PretrainExperiment:
     def train(
         self,
         *,
+        wandb_entity: str | None = None,
         wandb_project: str | None = None,
         wandb_name: str | None = None,
         use_wandb: bool | None = None,
@@ -75,6 +76,7 @@ class Gpt2PretrainExperiment:
             run_label="regular",
             title=self.title,
             env_files=(self.env_file(),),
+            wandb_entity=wandb_entity,
             wandb_project=wandb_project,
             wandb_name=wandb_name,
             use_wandb=use_wandb,
@@ -84,6 +86,7 @@ class Gpt2PretrainExperiment:
     def train_flight_check(
         self,
         *,
+        wandb_entity: str | None = None,
         wandb_project: str | None = None,
         wandb_name: str | None = None,
         use_wandb: bool | None = None,
@@ -116,6 +119,7 @@ class Gpt2PretrainExperiment:
             run_label="flight_check",
             title=self.title,
             env_files=(self.env_file(),),
+            wandb_entity=wandb_entity,
             wandb_project=wandb_project,
             wandb_name=wandb_name,
             use_wandb=use_wandb,

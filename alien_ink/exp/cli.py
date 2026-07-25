@@ -5,14 +5,22 @@ from __future__ import annotations
 import argparse
 from pathlib import Path
 
+from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT
+
 
 def add_wandb_args(parser: argparse.ArgumentParser) -> None:
-    """Add runtime W&B project / run-name overrides (CLI / kwargs only)."""
+    """Add runtime W&B entity / project / run-name overrides (CLI / kwargs only)."""
+    parser.add_argument(
+        "--wandb-entity",
+        default=None,
+        metavar="ENTITY",
+        help=f"W&B team/entity (default: {DEFAULT_WANDB_ENTITY}).",
+    )
     parser.add_argument(
         "--wandb-project",
         default=None,
-        metavar="NAME",
-        help="W&B project (default: alien-ink).",
+        metavar="PROJECT",
+        help=f"W&B project (default: {DEFAULT_WANDB_PROJECT}).",
     )
     parser.add_argument(
         "--wandb-name",
@@ -73,6 +81,7 @@ def add_train_override_args(parser: argparse.ArgumentParser) -> None:
 def wandb_kwargs(args: argparse.Namespace) -> dict[str, str | bool | None]:
     """Keyword args to pass through to ``train`` / ``train_flight_check``."""
     return {
+        "wandb_entity": args.wandb_entity,
         "wandb_project": args.wandb_project,
         "wandb_name": args.wandb_name,
         "use_wandb": False if getattr(args, "no_wandb", False) else None,

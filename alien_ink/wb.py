@@ -9,7 +9,17 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from alien_ink.device import device_info
-from alien_ink.env import EnvConfig
+from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, EnvConfig
+
+__all__ = [
+    "DEFAULT_WANDB_ENTITY",
+    "DEFAULT_WANDB_PROJECT",
+    "build_run_config",
+    "resolve_wandb_root",
+    "serialize_config",
+    "set_wandb_dir",
+    "wandb_run",
+]
 
 
 def serialize_config(obj: Any) -> dict[str, Any]:
@@ -52,6 +62,7 @@ def build_run_config(
     )
     flat: dict[str, Any] = {
         "run_label": run_label,
+        "wandb_entity": env.wandb_entity,
         "wandb_project": env.wandb_project,
         "device": device,
         "use_fp16": use_fp16,
@@ -85,6 +96,7 @@ def set_wandb_dir(output_dir: Path | str) -> Path:
 @contextmanager
 def wandb_run(
     *,
+    entity: str,
     project: str,
     name: str,
     config: dict[str, Any],
@@ -103,10 +115,12 @@ def wandb_run(
 
     root = set_wandb_dir(dir)
     print(">> Starting Weights & Biases run...")
+    print(f"   entity:    {entity}")
     print(f"   project:   {project}")
     print(f"   name:      {name}")
     print(f"   wandb dir: {root / 'wandb'}")
     run = wandb.init(
+        entity=entity,
         project=project,
         name=name,
         config=config,

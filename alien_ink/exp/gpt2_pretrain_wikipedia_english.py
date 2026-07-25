@@ -14,19 +14,20 @@ Run from an installed environment (CLI)::
   python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --flight-check
   python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --spot-check
 
-Override W&B project / run name at runtime::
+Override W&B entity / project / run name at runtime::
 
   python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --train \\
-    --wandb-project my-proj --wandb-name my-run
+    --wandb-entity logbook --wandb-project ink-explore --wandb-name gpt2-pretrain-wpe
 
 Or from a notebook / REPL::
 
   from alien_ink.exp.gpt2_pretrain_wikipedia_english import train, train_flight_check
-  train_flight_check(wandb_project="my-proj", wandb_name="flight")
+  train_flight_check(wandb_entity="logbook", wandb_project="ink-explore")
 
 Artifacts and ``.env`` resolve relative to the process working directory at call
-time. Set W&B project / run name via ``--wandb-project`` / ``--wandb-name``
-(or kwargs). Use ``--no-wandb`` to skip Weights & Biases.
+time. Set W&B entity / project / run name via ``--wandb-entity`` /
+``--wandb-project`` / ``--wandb-name`` (or kwargs). Use ``--no-wandb`` to skip
+Weights & Biases.
 """
 
 from __future__ import annotations
@@ -35,7 +36,7 @@ from alien_ink.exp.recipe import Gpt2PretrainExperiment, run_main
 from alien_ink.hf.ds import wikipedia_english
 
 EXPERIMENT = Gpt2PretrainExperiment(
-    run_name="gpt2-pretrain-wiki-eng",
+    run_name="gpt2-pretrain-wpe",
     title="GPT-2 from scratch on English Wikipedia",
     spot_check_title="GPT-2 Wikipedia — Spot Check",
     data_factory=wikipedia_english,

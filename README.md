@@ -62,21 +62,21 @@ Background Wikipedia pretrain with a timestamped log (see `bin/`):
 ./bin/gpt2_pretrain_wikipedia_english.sh
 ```
 
-### Weights & Biases (project / run name)
+### Weights & Biases (entity / project / run name)
 
-Set project and run name with CLI flags or function kwargs only (not via
-environment variables). Defaults: project `alien-ink`, run name from the
-experiment config. Pass `--no-wandb` (or `use_wandb=False`) to skip W&B
-entirely.
+W&B layout is organization → team (entity) → project → runs. Set entity,
+project, and run name with CLI flags or function kwargs only (not via
+environment variables). Defaults: entity `logbook`, project `ink-explore`,
+run name from the experiment config. Pass `--no-wandb` (or `use_wandb=False`)
+to skip W&B entirely.
 
 ```bash
 python -m alien_ink.exp.gpt2_pretrain_wikitext --train \
-  --wandb-project my-proj --wandb-name my-run
+  --wandb-entity logbook --wandb-project ink-explore --wandb-name my-run
 
 python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check --no-wandb
 
-./bin/gpt2_pretrain_wikipedia_english.sh \
-  --wandb-project my-proj --wandb-name my-run
+./bin/gpt2_pretrain_wikipedia_english.sh
 ```
 
 ### Training overrides / resume
@@ -105,7 +105,8 @@ train_flight_check(use_wandb=False)  # smoke test
 # spot_check()
 
 train(
-    wandb_project="my-proj",
+    wandb_entity="logbook",
+    wandb_project="ink-explore",
     wandb_name="my-run",
 )
 ```

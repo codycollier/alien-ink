@@ -46,8 +46,18 @@ def test_paths_resolve_from_cwd(tmp_path: Path, monkeypatch):
 
 
 def test_wandb_kwargs_no_wandb():
-    ns = type("N", (), {"wandb_project": "p", "wandb_name": "n", "no_wandb": True})()
+    ns = type(
+        "N",
+        (),
+        {
+            "wandb_entity": "e",
+            "wandb_project": "p",
+            "wandb_name": "n",
+            "no_wandb": True,
+        },
+    )()
     assert wandb_kwargs(ns) == {
+        "wandb_entity": "e",
         "wandb_project": "p",
         "wandb_name": "n",
         "use_wandb": False,

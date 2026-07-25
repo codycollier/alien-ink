@@ -8,7 +8,7 @@ from pathlib import Path
 from transformers import set_seed
 
 from alien_ink.device import device_info, distributed_world_size
-from alien_ink.env import load_env
+from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, load_env
 from alien_ink.hf.ds import PretrainDataConfig, load_streaming_train_eval
 from alien_ink.hf.model import Gpt2ArchConfig, build_model_and_tokenizer
 from alien_ink.hf.tok import tokenize_and_chunk
@@ -162,7 +162,9 @@ def pretrain_gpt2(
     run_label: str = "regular",
     title: str = "GPT-2 from scratch",
     env_files: tuple[Path, ...] | None = None,
-    wandb_project_fallback: str = "alien-ink",
+    wandb_entity_fallback: str = DEFAULT_WANDB_ENTITY,
+    wandb_project_fallback: str = DEFAULT_WANDB_PROJECT,
+    wandb_entity: str | None = None,
     wandb_project: str | None = None,
     wandb_name: str | None = None,
     use_wandb: bool | None = None,
@@ -170,8 +172,9 @@ def pretrain_gpt2(
 ) -> None:
     """End-to-end: env → data → model → trainer → optional W&B train/save.
 
-    Pass ``wandb_project`` / ``wandb_name`` explicitly (CLI flags or kwargs) to
-    override code defaults. These are not read from the environment.
+    Pass ``wandb_entity`` / ``wandb_project`` / ``wandb_name`` explicitly (CLI
+    flags or kwargs) to override code defaults. These are not read from the
+    environment.
 
     Set ``use_wandb=False`` (or ``trainer.report_to="none"``) to skip Weights &
     Biases entirely. ``resume_from_checkpoint`` follows HF Trainer semantics
@@ -193,7 +196,9 @@ def pretrain_gpt2(
     print(">> Loading .env...")
     env = load_env(
         *env_files,
+        wandb_entity=wandb_entity,
         wandb_project=wandb_project,
+        wandb_entity_fallback=wandb_entity_fallback,
         wandb_project_fallback=wandb_project_fallback,
     )
 
@@ -223,6 +228,7 @@ def pretrain_gpt2(
 
     print()
     with wandb_run(
+        entity=env.wandb_entity,
         project=env.wandb_project,
         name=config.trainer.run_name,
         config=run_config,
