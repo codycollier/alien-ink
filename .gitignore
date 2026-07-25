@@ -1,0 +1,17 @@
+
+
+# Python bytecode
+__pycache__/
+
+# Virtual environment
+.venv
+
+# Config
+!.env.example
+.env
+.env*
+
+# Local run artifacts
+output/
+
+
