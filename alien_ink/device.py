@@ -2,11 +2,27 @@
 
 from __future__ import annotations
 
+import os
+
 import torch
 
 
+def distributed_world_size() -> int:
+    """Process group size from the environment (default 1 for single-process)."""
+    try:
+        return max(1, int(os.environ.get("WORLD_SIZE", "1")))
+    except ValueError:
+        return 1
+
+
 def resolve_device() -> str:
-    return "cuda" if torch.cuda.is_available() else "cpu"
+    """Prefer CUDA, then Apple MPS, then CPU."""
+    if torch.cuda.is_available():
+        return "cuda"
+    mps = getattr(torch.backends, "mps", None)
+    if mps is not None and mps.is_available():
+        return "mps"
+    return "cpu"
 
 
 def resolve_precision(
@@ -18,15 +34,14 @@ def resolve_precision(
     """Return ``(use_fp16, use_bf16)`` for the given device.
 
     Prefers bf16 on Ampere+ GPUs: same dynamic range as fp32, so it avoids the
-    loss-scaling / overflow instabilities that fp16 can hit.
+    loss-scaling / overflow instabilities that fp16 can hit. MPS stays on fp32;
+    mixed precision there is still uneven across PyTorch builds.
     """
-    use_bf16 = (
-        device == "cuda"
-        and prefer_bf16
-        and torch.cuda.is_bf16_supported()
-    )
-    use_fp16 = device == "cuda" and prefer_fp16 and not use_bf16
-    return use_fp16, use_bf16
+    if device == "cuda":
+        use_bf16 = prefer_bf16 and torch.cuda.is_bf16_supported()
+        use_fp16 = prefer_fp16 and not use_bf16
+        return use_fp16, use_bf16
+    return False, False
 
 
 def device_info(

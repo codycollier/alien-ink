@@ -8,8 +8,6 @@ from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, Iterator
 
-import wandb
-
 from alien_ink.device import device_info
 from alien_ink.env import EnvConfig
 
@@ -91,8 +89,18 @@ def wandb_run(
     name: str,
     config: dict[str, Any],
     dir: Path | str,
+    enabled: bool = True,
 ) -> Iterator[Any]:
-    """Init a W&B run under ``dir``, yield it, then finish (even on error)."""
+    """Init a W&B run under ``dir``, yield it, then finish (even on error).
+
+    When ``enabled`` is False, yields ``None`` without importing or calling wandb.
+    """
+    if not enabled:
+        yield None
+        return
+
+    import wandb  # lazy: keep wandb optional until a run is actually started
+
     root = set_wandb_dir(dir)
     print(">> Starting Weights & Biases run...")
     print(f"   project:   {project}")

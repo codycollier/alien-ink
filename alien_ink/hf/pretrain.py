@@ -7,7 +7,7 @@ from pathlib import Path
 
 from transformers import set_seed
 
-from alien_ink.device import device_info
+from alien_ink.device import device_info, distributed_world_size
 from alien_ink.env import load_env
 from alien_ink.hf.ds import PretrainDataConfig, load_streaming_train_eval
 from alien_ink.hf.model import Gpt2ArchConfig, build_model_and_tokenizer
@@ -16,13 +16,14 @@ from alien_ink.hf.trainer import (
     CausalLmTrainerConfig,
     build_causal_lm_trainer,
     precision_label,
+    reporting_disabled,
     tokens_per_optimizer_step,
     train_and_save,
 )
 from alien_ink.wb import build_run_config, set_wandb_dir, wandb_run
 
 
-@dataclass
+@dataclass(frozen=True)
 class Gpt2PretrainConfig:
     """Composable config for from-scratch GPT-2 pretraining on a Hub text corpus."""
 
@@ -34,6 +35,16 @@ class Gpt2PretrainConfig:
             run_name="gpt2-pretrain",
         )
     )
+
+    def validate(self) -> None:
+        self.data.validate()
+        self.arch.validate()
+        self.trainer.validate()
+        if self.data.block_size > self.arch.n_positions:
+            raise ValueError(
+                f"data.block_size ({self.data.block_size}) cannot exceed "
+                f"arch.n_positions ({self.arch.n_positions})"
+            )
 
 
 def with_trainer(
@@ -58,6 +69,16 @@ def with_arch(
 ) -> Gpt2PretrainConfig:
     """Return ``config`` with selected ``Gpt2ArchConfig`` fields replaced."""
     return replace(config, arch=replace(config.arch, **arch_overrides))
+
+
+def resolve_use_wandb(
+    config: Gpt2PretrainConfig,
+    use_wandb: bool | None,
+) -> bool:
+    """Resolve whether to start a W&B run (explicit flag wins over ``report_to``)."""
+    if use_wandb is not None:
+        return use_wandb
+    return not reporting_disabled(config.trainer.report_to)
 
 
 def prepare_lm_datasets(
@@ -112,15 +133,19 @@ def log_pretrain_banner(
         prefer_bf16=config.trainer.prefer_bf16,
         prefer_fp16=config.trainer.prefer_fp16,
     )
+    world_size = distributed_world_size()
     tps = tokens_per_optimizer_step(
         per_device_train_batch_size=config.trainer.per_device_train_batch_size,
         gradient_accumulation_steps=config.trainer.gradient_accumulation_steps,
         block_size=config.data.block_size,
+        world_size=world_size,
     )
     print(
         f">> Device: {device} "
         f"(precision: {precision_label(use_fp16=use_fp16, use_bf16=use_bf16)})"
     )
+    if world_size > 1:
+        print(f">> World size: {world_size}")
     print(
         f">> Training steps: {config.trainer.max_steps:,} "
         f"(~{tps:,} tokens/step, "
@@ -140,14 +165,28 @@ def pretrain_gpt2(
     wandb_project_fallback: str = "alien-ink",
     wandb_project: str | None = None,
     wandb_name: str | None = None,
+    use_wandb: bool | None = None,
+    resume_from_checkpoint: str | Path | bool | None = None,
 ) -> None:
-    """End-to-end: env → data → model → trainer → W&B train/save.
+    """End-to-end: env → data → model → trainer → optional W&B train/save.
 
     Pass ``wandb_project`` / ``wandb_name`` explicitly (CLI flags or kwargs) to
     override code defaults. These are not read from the environment.
+
+    Set ``use_wandb=False`` (or ``trainer.report_to="none"``) to skip Weights &
+    Biases entirely. ``resume_from_checkpoint`` follows HF Trainer semantics
+    (path, ``True`` for latest checkpoint, or ``None``).
     """
     env_files = env_files if env_files is not None else (Path.cwd() / ".env",)
 
+    if resume_from_checkpoint is not None:
+        config = with_trainer(config, resume_from_checkpoint=resume_from_checkpoint)
+
+    want_wandb = resolve_use_wandb(config, use_wandb)
+    if not want_wandb and not reporting_disabled(config.trainer.report_to):
+        config = with_trainer(config, report_to="none")
+
+    config.validate()
     log_pretrain_banner(title=title, run_label=run_label, config=config)
 
     print()
@@ -162,7 +201,8 @@ def pretrain_gpt2(
         config = with_trainer(config, run_name=wandb_name)
 
     set_seed(config.trainer.seed)
-    set_wandb_dir(config.trainer.output_dir)
+    if want_wandb:
+        set_wandb_dir(config.trainer.output_dir)
     model, tokenizer = build_model_and_tokenizer(config.arch)
     train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
 
@@ -187,9 +227,11 @@ def pretrain_gpt2(
         name=config.trainer.run_name,
         config=run_config,
         dir=config.trainer.output_dir,
+        enabled=want_wandb,
     ):
         train_and_save(
             trainer=trainer,
             tokenizer=tokenizer,
             output_dir=config.trainer.output_dir,
+            resume_from_checkpoint=config.trainer.resume_from_checkpoint,
         )

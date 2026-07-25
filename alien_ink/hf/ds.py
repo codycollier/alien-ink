@@ -35,6 +35,23 @@ class PretrainDataConfig:
     tokenizer_num_proc: int = 4
     seed: int = 101
 
+    def validate(self) -> None:
+        if self.max_eval_samples < 1:
+            raise ValueError(
+                f"max_eval_samples must be >= 1, got {self.max_eval_samples}"
+            )
+        if self.block_size < 1:
+            raise ValueError(f"block_size must be >= 1, got {self.block_size}")
+        if self.stream_shuffle_buffer < 1:
+            raise ValueError(
+                "stream_shuffle_buffer must be >= 1, "
+                f"got {self.stream_shuffle_buffer}"
+            )
+        if self.tokenizer_num_proc < 1:
+            raise ValueError(
+                f"tokenizer_num_proc must be >= 1, got {self.tokenizer_num_proc}"
+            )
+
 
 def wikipedia_english(
     *,

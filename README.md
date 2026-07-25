@@ -25,7 +25,7 @@ spot-check of the newest checkpoint.
 
 Install with the Hugging Face extras (`pip install -e ".[hf]"`), then run from a
 working directory that has (or will create) `.env` and `output/`. Credentials
-and artifacts resolve relative to `cwd`.
+and artifacts resolve relative to `cwd` at call time.
 
 Optional `.env` keys are listed in `.env.example` (`HF_TOKEN` /
 `HUGGING_FACE_HUB_TOKEN`, `WANDB_API_KEY`). Copy it to `.env` and fill in values.
@@ -53,6 +53,9 @@ python -m alien_ink.exp.gpt2_pretrain_wikitext --spot-check
 Swap the module name for Wikipedia or C4. Mode flags (`--train`,
 `--flight-check`, `--spot-check`) are mutually exclusive.
 
+Flight-check W&B / Trainer run names are `{run_name}-flight-check` (for example
+`gpt2-pretrain-wikitext-flight-check`).
+
 Background Wikipedia pretrain with a timestamped log (see `bin/`):
 
 ```bash
@@ -63,24 +66,43 @@ Background Wikipedia pretrain with a timestamped log (see `bin/`):
 
 Set project and run name with CLI flags or function kwargs only (not via
 environment variables). Defaults: project `alien-ink`, run name from the
-experiment config.
+experiment config. Pass `--no-wandb` (or `use_wandb=False`) to skip W&B
+entirely.
 
 ```bash
 python -m alien_ink.exp.gpt2_pretrain_wikitext --train \
   --wandb-project my-proj --wandb-name my-run
 
+python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check --no-wandb
+
 ./bin/gpt2_pretrain_wikipedia_english.sh \
   --wandb-project my-proj --wandb-name my-run
 ```
+
+### Training overrides / resume
+
+Optional CLI knobs for `--train` and `--flight-check`:
+
+```bash
+python -m alien_ink.exp.gpt2_pretrain_wikitext --train \
+  --max-steps 1000 \
+  --learning-rate 3e-4 \
+  --per-device-train-batch-size 1 \
+  --gradient-accumulation-steps 32 \
+  --resume-from-checkpoint
+```
+
+`--resume-from-checkpoint` alone auto-picks the latest checkpoint under the run
+`output_dir`; pass a path to resume from a specific directory.
 
 ### Notebook / REPL
 
 ```python
 from alien_ink.exp.gpt2_pretrain_wikitext import train, train_flight_check, spot_check
 
-train_flight_check()  # smoke test
-# train()             # full run
-# spot_check()        # sample from newest checkpoint
+train_flight_check(use_wandb=False)  # smoke test
+# train(resume_from_checkpoint=True)
+# spot_check()
 
 train(
     wandb_project="my-proj",
@@ -90,4 +112,12 @@ train(
 
 Same pattern for the other modules (`gpt2_pretrain_wikipedia_english`,
 `gpt2_pretrain_c4`). Ensure the notebook kernel’s working directory is where you
-want `.env` and `output/` to live.
+want `.env` and `output/` to live (paths are resolved when you call the
+functions, not at import time).
+
+### Tests
+
+```bash
+pip install -e ".[hf,test]"
+pytest
+```

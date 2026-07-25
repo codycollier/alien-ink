@@ -12,10 +12,10 @@ from transformers import (
     TrainingArguments,
 )
 
-from alien_ink.device import device_info
+from alien_ink.device import device_info, distributed_world_size
 
 
-@dataclass
+@dataclass(frozen=True)
 class CausalLmTrainerConfig:
     """Hyperparameters and bookkeeping for a causal-LM ``Trainer`` run."""
 
@@ -43,6 +43,30 @@ class CausalLmTrainerConfig:
     dataloader_num_workers: int = 2
     run_name: str = "causal-lm"
     report_to: str = "wandb"
+    resume_from_checkpoint: str | Path | bool | None = None
+
+    def validate(self) -> None:
+        if self.max_steps < 1:
+            raise ValueError(f"max_steps must be >= 1, got {self.max_steps}")
+        if self.per_device_train_batch_size < 1:
+            raise ValueError(
+                "per_device_train_batch_size must be >= 1, "
+                f"got {self.per_device_train_batch_size}"
+            )
+        if self.per_device_eval_batch_size < 1:
+            raise ValueError(
+                "per_device_eval_batch_size must be >= 1, "
+                f"got {self.per_device_eval_batch_size}"
+            )
+        if self.gradient_accumulation_steps < 1:
+            raise ValueError(
+                "gradient_accumulation_steps must be >= 1, "
+                f"got {self.gradient_accumulation_steps}"
+            )
+        if self.learning_rate <= 0:
+            raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
+        if self.warmup_steps < 0:
+            raise ValueError(f"warmup_steps must be >= 0, got {self.warmup_steps}")
 
 
 def tokens_per_optimizer_step(
@@ -50,9 +74,16 @@ def tokens_per_optimizer_step(
     per_device_train_batch_size: int,
     gradient_accumulation_steps: int,
     block_size: int,
+    world_size: int | None = None,
 ) -> int:
-    """Tokens consumed per optimizer step (single-device)."""
-    return per_device_train_batch_size * gradient_accumulation_steps * block_size
+    """Tokens consumed per optimizer step across the process group."""
+    ws = distributed_world_size() if world_size is None else max(1, world_size)
+    return (
+        per_device_train_batch_size
+        * gradient_accumulation_steps
+        * block_size
+        * ws
+    )
 
 
 def precision_label(*, use_fp16: bool, use_bf16: bool) -> str:
@@ -67,6 +98,17 @@ def has_eval_examples(eval_dataset) -> bool:
     return eval_dataset is not None and len(eval_dataset) > 0
 
 
+def reporting_disabled(report_to: str | list[str] | tuple[str, ...] | None) -> bool:
+    """True when HF reporting should be off (no W&B / integrations)."""
+    if report_to is None:
+        return True
+    if isinstance(report_to, str):
+        return report_to.strip().lower() in {"", "none"}
+    return len(report_to) == 0 or all(
+        isinstance(item, str) and item.strip().lower() == "none" for item in report_to
+    )
+
+
 def build_training_arguments(
     config: CausalLmTrainerConfig,
     *,
@@ -78,6 +120,10 @@ def build_training_arguments(
         prefer_fp16=config.prefer_fp16,
     )
     config.output_dir.mkdir(parents=True, exist_ok=True)
+
+    report_to: str | list[str] = (
+        "none" if reporting_disabled(config.report_to) else config.report_to
+    )
 
     return TrainingArguments(
         output_dir=str(config.output_dir),
@@ -104,7 +150,7 @@ def build_training_arguments(
         greater_is_better=False,
         bf16=use_bf16,
         fp16=use_fp16,
-        report_to=config.report_to,
+        report_to=report_to,
         run_name=config.run_name,
         dataloader_pin_memory=device == "cuda",
         dataloader_num_workers=(
@@ -168,10 +214,13 @@ def train_and_save(
     trainer: Trainer,
     tokenizer,
     output_dir: Path,
+    resume_from_checkpoint: str | Path | bool | None = None,
 ) -> Trainer:
     """Run ``trainer.train()`` then save model and tokenizer."""
     print(">> Starting training...")
-    trainer.train()
+    if resume_from_checkpoint:
+        print(f"   resume_from_checkpoint: {resume_from_checkpoint}")
+    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
     print()
     save_model_and_tokenizer(trainer, tokenizer, output_dir)
     return trainer

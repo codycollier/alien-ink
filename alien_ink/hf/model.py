@@ -19,6 +19,20 @@ class Gpt2ArchConfig:
     n_head: int = 12
     use_cache: bool = False
 
+    def validate(self) -> None:
+        if self.n_positions < 1:
+            raise ValueError(f"n_positions must be >= 1, got {self.n_positions}")
+        if self.n_embd < 1:
+            raise ValueError(f"n_embd must be >= 1, got {self.n_embd}")
+        if self.n_layer < 1:
+            raise ValueError(f"n_layer must be >= 1, got {self.n_layer}")
+        if self.n_head < 1:
+            raise ValueError(f"n_head must be >= 1, got {self.n_head}")
+        if self.n_embd % self.n_head != 0:
+            raise ValueError(
+                f"n_embd ({self.n_embd}) must be divisible by n_head ({self.n_head})"
+            )
+
 
 def load_gpt2_tokenizer(name_or_path: str | Path) -> GPT2Tokenizer:
     """Load a GPT-2 tokenizer and ensure a pad token is set (eos)."""
@@ -36,6 +50,7 @@ def build_gpt2_from_scratch(
 ) -> GPT2LMHeadModel:
     """Initialize a GPT-2 LM head model with random weights from config."""
     arch = arch or Gpt2ArchConfig()
+    arch.validate()
     if verbose:
         print(">> Initializing GPT-2 from config with random weights...")
 
