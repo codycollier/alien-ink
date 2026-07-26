@@ -11,6 +11,11 @@ from transformers import set_seed
 from alien_ink.device import collect_accelerator_info, distributed_world_size
 from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, load_env
 from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
+from alien_ink.hf.launch import (
+    launch_tpu,
+    should_auto_launch_tpu,
+    warn_if_tpu_single_process,
+)
 from alien_ink.hf.metrics import (
     build_run_config_payload,
     collect_software_versions,
@@ -171,6 +176,8 @@ def log_pretrain_banner(
             + (f", cuDNN {accel.cudnn_version}" if accel.cudnn_version else ""),
             logger=log,
         )
+    if accel.device == "xla":
+        detail(f"XLA/TPU cores: {accel.gpu_count}", logger=log)
     detail(f"torch {accel.torch_version}", logger=log)
     step(
         f"Training steps: {config.trainer.max_steps:,} "
@@ -196,6 +203,8 @@ def pretrain_gpt2(
     wandb_name: str | None = None,
     use_wandb: bool | None = None,
     resume_from_checkpoint: str | Path | bool | None = None,
+    tpu_launch: bool | None = None,
+    tpu_num_processes: int | None = None,
 ):
     """End-to-end: env → data → model → trainer → optional W&B train/save.
 
@@ -210,10 +219,43 @@ def pretrain_gpt2(
     Biases entirely. ``resume_from_checkpoint`` follows HF Trainer semantics
     (path, ``True`` for latest checkpoint, or ``None``).
 
+    On a Colab/Kaggle TPU notebook, training is auto-wrapped in Accelerate's
+    ``notebook_launcher`` (override with ``tpu_launch=False``). That path
+    returns ``(None, None)`` because launcher workers do not propagate the
+    trainer object back to the parent kernel.
+
     Always writes ``run_config.json`` before training and ``run_summary.json``
     when training stops (completed, interrupted, or failed) under
     ``trainer.output_dir``.
     """
+    if should_auto_launch_tpu(force=tpu_launch):
+        launch_kwargs = dict(
+            config=config,
+            run_label=run_label,
+            title=title,
+            env_files=env_files,
+            wandb_entity_fallback=wandb_entity_fallback,
+            wandb_project_fallback=wandb_project_fallback,
+            wandb_entity=wandb_entity,
+            wandb_project=wandb_project,
+            wandb_name=wandb_name,
+            use_wandb=use_wandb,
+            resume_from_checkpoint=resume_from_checkpoint,
+            tpu_launch=False,
+            tpu_num_processes=tpu_num_processes,
+        )
+
+        def _tpu_worker() -> None:
+            pretrain_gpt2(**launch_kwargs)
+
+        mixed = "bf16" if config.trainer.prefer_bf16 else "no"
+        launch_tpu(
+            _tpu_worker,
+            num_processes=tpu_num_processes,
+            mixed_precision=mixed,
+        )
+        return None, None
+
     env_files = env_files if env_files is not None else (Path.cwd() / ".env",)
 
     if resume_from_checkpoint is not None:
@@ -227,6 +269,7 @@ def pretrain_gpt2(
     accel, tokens_per_step = log_pretrain_banner(
         title=title, run_label=run_label, config=config
     )
+    warn_if_tpu_single_process()
 
     blank(logger=log)
     step("Loading credentials...", logger=log)

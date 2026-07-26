@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
-from alien_ink.device import device_info
+from alien_ink.device import device_info, torch_device, xla_mark_step
 from alien_ink.hf.ds import HubTextSource, load_text_prompts
 from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 from alien_ink.log import banner, blank, get_logger, header, step
@@ -81,7 +81,8 @@ def generate_completion(
     temperature: float = 0.8,
 ) -> str:
     """Generate a completion for ``prompt`` and return only the new text."""
-    inputs = tokenizer(prompt, return_tensors="pt").to(device)
+    target = torch_device(device)
+    inputs = tokenizer(prompt, return_tensors="pt").to(target)
     output_ids = model.generate(
         **inputs,
         max_new_tokens=max_new_tokens,
@@ -91,6 +92,9 @@ def generate_completion(
         temperature=temperature,
         pad_token_id=tokenizer.pad_token_id,
     )
+    if device == "xla" or str(getattr(output_ids, "device", "")).startswith("xla"):
+        xla_mark_step()
+        output_ids = output_ids.cpu()
     full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     return full_text[len(prompt) :].strip()
 

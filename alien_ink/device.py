@@ -11,17 +11,86 @@ import torch
 
 
 def distributed_world_size() -> int:
-    """Process group size from the environment (default 1 for single-process)."""
+    """Process group size (env ``WORLD_SIZE``, else XLA runtime, else 1)."""
     try:
-        return max(1, int(os.environ.get("WORLD_SIZE", "1")))
+        env = os.environ.get("WORLD_SIZE")
+        if env is not None:
+            return max(1, int(env))
     except ValueError:
-        return 1
+        pass
+    xla_ws = _xla_world_size()
+    if xla_ws is not None:
+        return xla_ws
+    return 1
+
+
+def is_torch_xla_available() -> bool:
+    """True when the ``torch_xla`` package imports successfully."""
+    try:
+        import torch_xla  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def is_xla_tpu_available() -> bool:
+    """True when PyTorch/XLA reports a TPU backend."""
+    if not is_torch_xla_available():
+        return False
+    try:
+        import torch_xla.runtime as xr
+
+        return str(xr.device_type()).upper() == "TPU"
+    except Exception:
+        return False
+
+
+def _xla_world_size() -> int | None:
+    if not is_torch_xla_available():
+        return None
+    try:
+        import torch_xla.runtime as xr
+
+        return max(1, int(xr.world_size()))
+    except Exception:
+        return None
+
+
+def _xla_device_count() -> int:
+    if not is_torch_xla_available():
+        return 0
+    try:
+        import torch_xla.runtime as xr
+
+        return max(0, int(xr.global_device_count()))
+    except Exception:
+        try:
+            import torch_xla.runtime as xr
+
+            return max(0, int(xr.world_size()))
+        except Exception:
+            return 0
+
+
+def _tpu_chip_name() -> str | None:
+    for key in (
+        "TPU_ACCELERATOR_TYPE",
+        "ACCELERATOR_TYPE",
+        "TPU_TYPE",
+        "TPU_NAME",
+    ):
+        value = os.environ.get(key)
+        if value:
+            return value
+    return None
 
 
 def resolve_device() -> str:
-    """Prefer CUDA, then Apple MPS, then CPU."""
+    """Prefer CUDA, then XLA/TPU, then Apple MPS, then CPU."""
     if torch.cuda.is_available():
         return "cuda"
+    if is_xla_tpu_available():
+        return "xla"
     mps = getattr(torch.backends, "mps", None)
     if mps is not None and mps.is_available():
         return "mps"
@@ -37,11 +106,17 @@ def resolve_precision(
     """Return ``(use_fp16, use_bf16)`` for the given device.
 
     Prefers bf16 on Ampere+ GPUs: same dynamic range as fp32, so it avoids the
-    loss-scaling / overflow instabilities that fp16 can hit. MPS stays on fp32;
-    mixed precision there is still uneven across PyTorch builds.
+    loss-scaling / overflow instabilities that fp16 can hit. TPUs also prefer
+    bf16. MPS stays on fp32; mixed precision there is still uneven across
+    PyTorch builds.
     """
     if device == "cuda":
         use_bf16 = prefer_bf16 and torch.cuda.is_bf16_supported()
+        use_fp16 = prefer_fp16 and not use_bf16
+        return use_fp16, use_bf16
+    if device == "xla":
+        # Cloud TPUs are efficient in bf16; avoid fp16 loss-scaling paths.
+        use_bf16 = prefer_bf16
         use_fp16 = prefer_fp16 and not use_bf16
         return use_fp16, use_bf16
     return False, False
@@ -60,6 +135,33 @@ def device_info(
         prefer_fp16=prefer_fp16,
     )
     return device, use_fp16, use_bf16
+
+
+def torch_device(device: str | None = None) -> torch.device | str:
+    """Resolve a library device string to a ``torch.device`` (XLA-aware)."""
+    resolved = resolve_device() if device is None else device
+    if resolved == "xla":
+        import torch_xla.core.xla_model as xm
+
+        return xm.xla_device()
+    return resolved
+
+
+def move_module_to_device(module: torch.nn.Module, device: str | None = None):
+    """Move ``module`` onto the resolved device (handles XLA/TPU)."""
+    return module.to(torch_device(device))
+
+
+def xla_mark_step() -> None:
+    """Flush the pending XLA graph when running on TPU; no-op otherwise."""
+    if resolve_device() != "xla":
+        return
+    try:
+        import torch_xla.core.xla_model as xm
+
+        xm.mark_step()
+    except Exception:
+        return
 
 
 @dataclass(frozen=True)
@@ -82,6 +184,7 @@ class AcceleratorInfo:
     python_version: str
     # Optional peak TFLOPS for the active precision (lookup; None if unknown).
     peak_tflops: float | None = None
+    xla_available: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -144,7 +247,7 @@ def collect_accelerator_info(
     prefer_bf16: bool = True,
     prefer_fp16: bool = True,
 ) -> AcceleratorInfo:
-    """Snapshot device, precision, GPU identity, and runtime versions."""
+    """Snapshot device, precision, GPU/TPU identity, and runtime versions."""
     device, use_fp16, use_bf16 = device_info(
         prefer_bf16=prefer_bf16,
         prefer_fp16=prefer_fp16,
@@ -157,6 +260,7 @@ def collect_accelerator_info(
     cuda_version: str | None = None
     cudnn_version: str | None = None
     cuda_available = bool(torch.cuda.is_available())
+    xla_available = is_torch_xla_available()
 
     if cuda_available:
         gpu_count = torch.cuda.device_count()
@@ -169,6 +273,9 @@ def collect_accelerator_info(
             cudnn_version = str(torch.backends.cudnn.version())
         except Exception:
             cudnn_version = None
+    elif device == "xla":
+        gpu_count = _xla_device_count() or distributed_world_size()
+        gpu_name = _tpu_chip_name() or "TPU"
     elif device == "mps":
         gpu_name = "Apple MPS"
         gpu_count = 1
@@ -189,4 +296,5 @@ def collect_accelerator_info(
         platform=platform.platform(),
         python_version=platform.python_version(),
         peak_tflops=lookup_peak_tflops(gpu_name, prec),
+        xla_available=xla_available,
     )

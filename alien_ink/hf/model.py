@@ -7,6 +7,7 @@ from pathlib import Path
 
 from transformers import GPT2Config, GPT2LMHeadModel, GPT2Tokenizer
 
+from alien_ink.device import move_module_to_device
 from alien_ink.log import detail, get_logger, step
 
 log = get_logger("hf.model")
@@ -130,6 +131,6 @@ def load_pretrained_model(
         step(f"Loading model from {model_path}...", logger=log)
     tokenizer = load_gpt2_tokenizer(model_path)
     model = GPT2LMHeadModel.from_pretrained(model_path)
-    model.to(device)
+    move_module_to_device(model, device)
     model.eval()
     return model, tokenizer

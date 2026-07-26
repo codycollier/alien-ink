@@ -176,6 +176,7 @@ def build_training_arguments(
         report_to=report_to,
         run_name=config.run_name,
         dataloader_pin_memory=device == "cuda",
+        # XLA/TPU multiproc is sensitive to forked DataLoader workers.
         dataloader_num_workers=(
             config.dataloader_num_workers if device == "cuda" else 0
         ),

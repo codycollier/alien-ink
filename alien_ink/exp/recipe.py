@@ -95,12 +95,15 @@ class Gpt2PretrainExperiment:
         wandb_name: str | None = None,
         use_wandb: bool | None = None,
         resume_from_checkpoint: str | Path | bool | None = None,
+        tpu_launch: bool | None = None,
+        tpu_num_processes: int | None = None,
         **trainer_overrides,
     ):
         """Full pretraining run.
 
         Returns ``(trainer, run_summary)``. ``run_summary.json`` / ``run_config.json``
-        are always written under the run ``output_dir``.
+        are always written under the run ``output_dir``. On Colab TPU notebooks,
+        auto-launches via ``notebook_launcher`` and returns ``(None, None)``.
         """
         cfg = self.base_config()
         if trainer_overrides:
@@ -125,6 +128,8 @@ class Gpt2PretrainExperiment:
             wandb_name=wandb_name,
             use_wandb=use_wandb,
             resume_from_checkpoint=resume_from_checkpoint,
+            tpu_launch=tpu_launch,
+            tpu_num_processes=tpu_num_processes,
         )
 
     def train_flight_check(
@@ -135,6 +140,8 @@ class Gpt2PretrainExperiment:
         wandb_name: str | None = None,
         use_wandb: bool | None = None,
         resume_from_checkpoint: str | Path | bool | None = None,
+        tpu_launch: bool | None = None,
+        tpu_num_processes: int | None = None,
         **trainer_overrides,
     ):
         """Fast end-to-end smoke test (tiny steps / block size).
@@ -178,6 +185,8 @@ class Gpt2PretrainExperiment:
             wandb_name=wandb_name,
             use_wandb=use_wandb,
             resume_from_checkpoint=resume_from_checkpoint,
+            tpu_launch=tpu_launch,
+            tpu_num_processes=tpu_num_processes,
         )
 
     def spot_check(self) -> None:

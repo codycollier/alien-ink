@@ -169,7 +169,7 @@ pytest
 
 Ensure secrets from .env are set as notebook secrets (key icon to left).
 
-### Install
+### Install (GPU / CPU)
 
 ```python
 %pip install -q -U "alien-ink[hf]"
@@ -180,6 +180,38 @@ import alien_ink
 
 print(alien_ink.stars)
 ```
+
+### Install (TPU)
+
+1. Runtime → Change runtime type → **TPU**.
+2. Keep the runtime's PyTorch/XLA stack; install alien-ink deps without replacing
+   `torch` / `torch_xla`:
+
+```python
+%pip install -q python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
+%pip install -q --no-deps "alien-ink"
+```
+
+If `torch_xla` is missing on the runtime, install a matching pair first
+(see [PyTorch/XLA](https://docs.pytorch.org/xla/master/)):
+
+```python
+%pip install -q torch torch_xla[tpu]
+```
+
+Verify:
+
+```python
+import torch
+import torch_xla
+import torch_xla.runtime as xr
+from alien_ink.device import resolve_device
+
+print("torch", torch.__version__, "xla", torch_xla.__version__)
+print("device_type", xr.device_type(), "→", resolve_device())
+```
+
+Expect `resolve_device()` → `xla`.
 
 ### Call the experiment functions
 
@@ -196,4 +228,19 @@ train_flight_check(
     wandb_name="my-run",
 )
 
+```
+
+On a TPU notebook, `train` / `train_flight_check` auto-wrap with Accelerate's
+`notebook_launcher` (multi-core). Override with `tpu_launch=False` or set
+`tpu_num_processes=N`. That path returns `(None, None)`; check
+`output/.../run_summary.json` for metrics.
+
+### CLI on a Cloud TPU VM
+
+Launch multi-core training with XLA spawn (do not run bare `python -m` if you
+want all cores):
+
+```bash
+python -m torch_xla.distributed.xla_spawn --num_cores=8 \
+  -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check
 ```
