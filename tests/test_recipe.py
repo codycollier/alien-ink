@@ -10,12 +10,36 @@ pytest.importorskip("datasets")
 pytest.importorskip("transformers")
 
 from alien_ink.exp.cli import train_override_kwargs, wandb_kwargs  # noqa: E402
-from alien_ink.exp.recipe import Gpt2PretrainExperiment  # noqa: E402
+from alien_ink.exp.recipe import (  # noqa: E402
+    Gpt2PretrainExperiment,
+    scaled_trainer_steps,
+)
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 
 
 def _fake_data(**_kwargs) -> PretrainDataConfig:
     return PretrainDataConfig(source=HubTextSource(dataset="Salesforce/wikitext", name="x"))
+
+
+def test_scaled_trainer_steps_matches_reference_defaults():
+    assert scaled_trainer_steps(50_000) == {
+        "logging_steps": 50,
+        "eval_steps": 1_000,
+        "save_steps": 1_000,
+    }
+
+
+def test_scaled_trainer_steps_short_run():
+    assert scaled_trainer_steps(2_000) == {
+        "logging_steps": 2,
+        "eval_steps": 40,
+        "save_steps": 40,
+    }
+
+
+def test_scaled_trainer_steps_rejects_non_positive():
+    with pytest.raises(ValueError, match="max_steps"):
+        scaled_trainer_steps(0)
 
 
 def test_flight_check_run_name_appends_suffix():
@@ -37,7 +61,67 @@ def test_subset_experiment_defaults():
     assert cfg.data.max_eval_samples == 1_000
     assert cfg.trainer.max_steps == 2_000
     assert cfg.trainer.warmup_steps == 200
+    assert cfg.trainer.logging_steps == 2
+    assert cfg.trainer.eval_steps == 40
+    assert cfg.trainer.save_steps == 40
     assert EXPERIMENT.run_name == "gpt2-pretrain-wpe-subset"
+
+
+def test_streamed_experiment_keeps_reference_cadence():
+    from alien_ink.exp.gpt2_pretrain_wikitext import EXPERIMENT
+
+    cfg = EXPERIMENT.base_config()
+    assert cfg.trainer.max_steps == 50_000
+    assert cfg.trainer.logging_steps == 50
+    assert cfg.trainer.eval_steps == 1_000
+    assert cfg.trainer.save_steps == 1_000
+
+
+def test_train_rescales_cadence_when_max_steps_overridden(monkeypatch):
+    captured: dict = {}
+
+    def fake_pretrain(cfg, **_kwargs):
+        captured["trainer"] = cfg.trainer
+
+    monkeypatch.setattr("alien_ink.exp.recipe.pretrain_gpt2", fake_pretrain)
+    exp = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
+        max_steps=2_000,
+        warmup_steps=200,
+    )
+    exp.train(use_wandb=False, max_steps=5_000)
+    assert captured["trainer"].max_steps == 5_000
+    assert captured["trainer"].logging_steps == 5
+    assert captured["trainer"].eval_steps == 100
+    assert captured["trainer"].save_steps == 100
+
+
+def test_train_keeps_explicit_cadence_overrides(monkeypatch):
+    captured: dict = {}
+
+    def fake_pretrain(cfg, **_kwargs):
+        captured["trainer"] = cfg.trainer
+
+    monkeypatch.setattr("alien_ink.exp.recipe.pretrain_gpt2", fake_pretrain)
+    exp = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
+        max_steps=2_000,
+        warmup_steps=200,
+    )
+    exp.train(use_wandb=False, max_steps=5_000, eval_steps=250)
+    assert captured["trainer"].max_steps == 5_000
+    assert captured["trainer"].eval_steps == 250
+    # Unspecified cadence fields still follow the new max_steps.
+    assert captured["trainer"].logging_steps == 5
+    assert captured["trainer"].save_steps == 100
 
 
 def test_flight_check_shrinks_materialized_train(monkeypatch):

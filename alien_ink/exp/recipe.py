@@ -22,6 +22,30 @@ from alien_ink.log import get_logger
 
 log = get_logger("exp.recipe")
 
+# Reference cadence for a full streamed run; shorter max_steps scale these down
+# so subsets keep roughly the same number of log / eval / checkpoint points.
+_REF_MAX_STEPS = 50_000
+_REF_LOGGING_STEPS = 50
+_REF_EVAL_STEPS = 1_000
+_REF_SAVE_STEPS = 1_000
+_CADENCE_KEYS = frozenset({"logging_steps", "eval_steps", "save_steps"})
+
+
+def scaled_trainer_steps(max_steps: int) -> dict[str, int]:
+    """Scale log/eval/save cadence with ``max_steps``.
+
+    At the reference ``50_000`` steps this returns the trainer defaults
+    (``50`` / ``1_000`` / ``1_000``). Shorter runs keep ~the same number of
+    curve points (e.g. ``2_000`` → ``2`` / ``40`` / ``40``).
+    """
+    if max_steps < 1:
+        raise ValueError(f"max_steps must be >= 1, got {max_steps}")
+    return {
+        "logging_steps": max(1, (_REF_LOGGING_STEPS * max_steps) // _REF_MAX_STEPS),
+        "eval_steps": max(1, (_REF_EVAL_STEPS * max_steps) // _REF_MAX_STEPS),
+        "save_steps": max(1, (_REF_SAVE_STEPS * max_steps) // _REF_MAX_STEPS),
+    }
+
 
 @dataclass(frozen=True)
 class Gpt2PretrainExperiment:
@@ -59,6 +83,7 @@ class Gpt2PretrainExperiment:
                 learning_rate=6e-4,
                 warmup_steps=self.warmup_steps,
                 run_name=self.run_name,
+                **scaled_trainer_steps(self.max_steps),
             ),
         )
 
@@ -80,6 +105,16 @@ class Gpt2PretrainExperiment:
         cfg = self.base_config()
         if trainer_overrides:
             cfg = with_trainer(cfg, **trainer_overrides)
+            # Keep log/eval/save density aligned when max_steps is overridden;
+            # leave any cadence fields the caller set explicitly alone.
+            if "max_steps" in trainer_overrides:
+                auto = {
+                    key: value
+                    for key, value in scaled_trainer_steps(cfg.trainer.max_steps).items()
+                    if key not in trainer_overrides
+                }
+                if auto:
+                    cfg = with_trainer(cfg, **auto)
         return pretrain_gpt2(
             cfg,
             run_label="regular",
