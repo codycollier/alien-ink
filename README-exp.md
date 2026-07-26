@@ -167,53 +167,36 @@ pytest
 
 ## Running in a notebook (Google Colab)
 
-Use this path in Google Colab (or any notebook / REPL) instead of the CLI.
-In a remote kernel there is no local checkout, so install the published package
-from PyPI (with the `hf` extras) before importing:
+Ensure secrets from .env are set as notebook secrets (key icon to left).
+
+### Install
 
 ```python
-%pip install "alien-ink[hf]"
+%pip install -q -U "alien-ink[hf]"
 ```
 
-### API keys (HF + W&B)
+```
+import alien_ink
 
-In Google Colab, store credentials in the **Secrets** panel (key icon in the
-left sidebar) — not in notebook cells. Add secrets named `HF_TOKEN` and
-`WANDB_API_KEY`, toggle **Notebook access** on for each, then run as usual.
-`load_env` detects Colab and reads those secrets automatically.
-
-- `HF_TOKEN`: https://huggingface.co/settings/tokens
-- `WANDB_API_KEY`: https://wandb.ai/authorize
-
-Do not put W&B entity / project / run name in Secrets — pass those as function
-kwargs (below). Ensure the kernel cwd is where you want `output/` to live
-(paths resolve at call time, not import time).
-
-Progress output uses the central `alien_ink` logger (clean `>>` / `::` lines,
-INFO on stdout). Optionally set the level before a run:
-
-```python
-from alien_ink.log import configure
-configure(level="INFO")  # or "WARNING" to quiet progress noise
+print(80 * "-")
+print(alien_ink)
+print("Version: " + alien_ink.__version__)
+print(80 * "-")
 ```
 
-Or set env `ALIEN_INK_LOG_LEVEL=WARNING` before starting the kernel / process.
-
-Then call the experiment functions:
+### Call the experiment functions
 
 ```python
-from alien_ink.exp.gpt2_pretrain_wikitext import train, train_flight_check, spot_check
 # from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
-#     train, train_flight_check, spot_check,
-# )
+from alien_ink.exp.gpt2_pretrain_wikitext import train, train_flight_check, spot_check
 
-train_flight_check(use_wandb=False)  # smoke test
-# train(resume_from_checkpoint=True)
-# spot_check()
 
-train(
+# train(
+train_flight_check(
+    use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
     wandb_name="my-run",
 )
+
 ```
