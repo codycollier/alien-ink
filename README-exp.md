@@ -23,6 +23,11 @@ Flight-check W&B / Trainer run names are `{run_name}-flight-check` (for example
 Credentials and artifacts resolve relative to `cwd` at call time (`.env`,
 `output/`). Optional `.env` keys are listed in `.env.example`.
 
+## Running locally with a GPU
+
+Use this path when you have a machine with a local GPU and want to drive
+experiments from the shell (or a background `bin/` script).
+
 ### Setup
 
 ```bash
@@ -39,7 +44,7 @@ Or:
 cp .env.example .env   # then fill in HF_TOKEN / WANDB_API_KEY
 ```
 
-### Local (CLI)
+### CLI
 
 Flight check (fast end-to-end smoke test):
 
@@ -137,7 +142,18 @@ python -m alien_ink.exp.gpt2_pretrain_c4 --train \
 `--resume-from-checkpoint` alone auto-picks the latest checkpoint under the run
 `output_dir`; pass a path to resume from a specific directory.
 
-### Notebook / REPL
+### Tests
+
+```bash
+uv pip install -e ".[hf,test]"
+pytest
+```
+
+## Running in a notebook (Google Colab)
+
+Use this path in Google Colab (or any notebook / REPL) instead of the CLI.
+Call the experiment functions directly after the package is installed in the
+kernel environment.
 
 ```python
 from alien_ink.exp.gpt2_pretrain_wikitext import train, train_flight_check, spot_check
@@ -159,10 +175,3 @@ train(
 Ensure the notebook kernel’s working directory is where you want `.env` and
 `output/` to live (paths are resolved when you call the functions, not at
 import time).
-
-### Tests
-
-```bash
-uv pip install -e ".[hf,test]"
-pytest
-```
