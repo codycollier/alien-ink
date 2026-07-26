@@ -13,7 +13,7 @@ mkdir -p output
 stamp=$(date +%Y%m%d-%H%M%S)
 entity="logbook"
 project="ink-explore"
-name="gpt2-pretrain-c4-subset"
+name="gpt2-pretrain-c4-subset-mist"
 log="output/${name}-${stamp}.log"
 
 nohup python -m alien_ink.exp.gpt2_pretrain_c4_subset \
