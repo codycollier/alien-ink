@@ -179,7 +179,7 @@ Ensure secrets from .env are set as notebook secrets (key icon to left).
 import alien_ink
 
 print(80 * "-")
-print(alien_ink)
+print(alien_ink.stars)
 print("Version: " + alien_ink.__version__)
 print(80 * "-")
 ```
