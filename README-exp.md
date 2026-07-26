@@ -189,7 +189,7 @@ print(alien_ink.stars)
 
 ```python
 %pip install -q python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
-%pip install -q --no-deps "alien-ink"
+%pip install -q --no-deps -U "alien-ink"
 ```
 
 If `torch_xla` is missing on the runtime, install a matching pair first
