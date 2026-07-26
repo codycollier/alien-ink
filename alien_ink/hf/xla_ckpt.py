@@ -11,3 +11,14 @@ def native_gradient_checkpointing_supported(device: str) -> bool:
     wires that in automatically, keep native checkpointing off on TPU.
     """
     return device != "xla"
+
+
+def resolve_trainer_optim(device: str, *, default: str | None = None) -> str:
+    """Pick an HF ``TrainingArguments.optim`` value safe for ``device``.
+
+    Transformers defaults to ``adamw_torch_fused`` on recent torch, but fused
+    AdamW rejects XLA params (``fused=True`` only allows cuda/mps/cpu/...).
+    """
+    if device == "xla":
+        return "adamw_torch"
+    return default if default is not None else "adamw_torch"

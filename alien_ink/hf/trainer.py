@@ -19,7 +19,10 @@ from alien_ink.device import (
     distributed_world_size,
     precision_label,
 )
-from alien_ink.hf.xla_ckpt import native_gradient_checkpointing_supported
+from alien_ink.hf.xla_ckpt import (
+    native_gradient_checkpointing_supported,
+    resolve_trainer_optim,
+)
 from alien_ink.hf.metrics import (
     ModelSize,
     RunSummary,
@@ -162,6 +165,13 @@ def build_training_arguments(
             logger=log,
         )
 
+    # Recent transformers default to adamw_torch_fused; fused kernels reject XLA.
+    optim_kwargs: dict = {}
+    if device == "xla":
+        optim = resolve_trainer_optim(device)
+        optim_kwargs["optim"] = optim
+        detail(f"optimizer: {optim} (fused AdamW unsupported on XLA)", logger=log)
+
     return TrainingArguments(
         output_dir=str(config.output_dir),
         max_steps=config.max_steps,
@@ -196,6 +206,7 @@ def build_training_arguments(
         ),
         seed=config.seed,
         remove_unused_columns=False,
+        **optim_kwargs,
     )
 
 
