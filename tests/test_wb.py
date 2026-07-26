@@ -31,10 +31,26 @@ def test_serialize_config_dict():
 
 
 def test_build_run_config_namespaces_multiple(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.wb.device_info",
-        lambda **_: ("cpu", False, False),
+    from alien_ink.device import AcceleratorInfo
+
+    fake = AcceleratorInfo(
+        device="cpu",
+        use_fp16=False,
+        use_bf16=False,
+        precision="fp32",
+        world_size=1,
+        gpu_count=0,
+        gpu_name=None,
+        gpu_memory_total_gb=None,
+        cuda_available=False,
+        cuda_version=None,
+        cudnn_version=None,
+        torch_version="2.0.0",
+        platform="test",
+        python_version="3.11.0",
+        peak_tflops=None,
     )
+    monkeypatch.setattr("alien_ink.wb.collect_accelerator_info", lambda **_: fake)
     env = EnvConfig(
         hf_token=None,
         wandb_api_key=None,
@@ -45,12 +61,19 @@ def test_build_run_config_namespaces_multiple(monkeypatch):
         run_label="r",
         env=env,
         configs={"data": {"block_size": 128}, "arch": {"n_layer": 2}},
+        tokens_per_step=1024,
+        model={"total_params": 100},
+        software={"torch": "2.0.0"},
     )
     assert flat["run_label"] == "r"
     assert flat["wandb_entity"] == "logbook"
     assert flat["wandb_project"] == "proj"
     assert flat["data.block_size"] == 128
     assert flat["arch.n_layer"] == 2
+    assert flat["tokens_per_optimizer_step"] == 1024
+    assert flat["accel.device"] == "cpu"
+    assert flat["model.total_params"] == 100
+    assert flat["sw.torch"] == "2.0.0"
 
 
 def test_wandb_run_disabled_does_not_import_wandb():

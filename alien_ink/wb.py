@@ -8,7 +8,7 @@ from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, Iterator
 
-from alien_ink.device import device_info
+from alien_ink.device import AcceleratorInfo, collect_accelerator_info
 from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, EnvConfig
 from alien_ink.log import detail, get_logger, step
 
@@ -53,13 +53,18 @@ def build_run_config(
     configs: dict[str, Any],
     prefer_bf16: bool = True,
     prefer_fp16: bool = True,
+    accelerator: AcceleratorInfo | None = None,
+    tokens_per_step: int | None = None,
+    model: dict[str, Any] | None = None,
+    software: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """Flat config dict suitable for ``wandb.init(config=...)``.
 
     When ``configs`` has multiple entries, keys are namespaced as ``{name}.{field}``.
-    A single entry is flattened without a prefix.
+    A single entry is flattened without a prefix. Accelerator / software fields
+    are prefixed with ``accel.`` / ``sw.`` for easy W&B filtering across GPUs.
     """
-    device, use_fp16, use_bf16 = device_info(
+    accel = accelerator or collect_accelerator_info(
         prefer_bf16=prefer_bf16,
         prefer_fp16=prefer_fp16,
     )
@@ -67,10 +72,21 @@ def build_run_config(
         "run_label": run_label,
         "wandb_entity": env.wandb_entity,
         "wandb_project": env.wandb_project,
-        "device": device,
-        "use_fp16": use_fp16,
-        "use_bf16": use_bf16,
+        "device": accel.device,
+        "use_fp16": accel.use_fp16,
+        "use_bf16": accel.use_bf16,
+        "precision": accel.precision,
+        "world_size": accel.world_size,
+        "tokens_per_optimizer_step": tokens_per_step,
     }
+    for k, v in accel.as_dict().items():
+        flat[f"accel.{k}"] = v
+    if model:
+        for k, v in model.items():
+            flat[f"model.{k}"] = v
+    if software:
+        for k, v in software.items():
+            flat[f"sw.{k}"] = v
     if len(configs) == 1:
         flat.update(serialize_config(next(iter(configs.values()))))
     else:

@@ -5,6 +5,7 @@ Submodules:
   tok      — tokenize + pack LM blocks
   model    — GPT-2 build / checkpoint load
   trainer  — TrainingArguments / Trainer builders
+  metrics  — FLOPs / throughput / run_config + run_summary artifacts
   pretrain — GPT-2 pretrain recipe (optional W&B via alien_ink.wb)
   gen      — generation / spot-check
 """

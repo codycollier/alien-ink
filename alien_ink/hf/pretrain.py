@@ -8,15 +8,20 @@ from pathlib import Path
 from datasets import IterableDataset
 from transformers import set_seed
 
-from alien_ink.device import device_info, distributed_world_size
+from alien_ink.device import collect_accelerator_info, distributed_world_size
 from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, load_env
 from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
+from alien_ink.hf.metrics import (
+    build_run_config_payload,
+    collect_software_versions,
+    count_model_params,
+    save_run_config,
+)
 from alien_ink.hf.model import Gpt2ArchConfig, build_model_and_tokenizer
 from alien_ink.hf.tok import tokenize_and_chunk
 from alien_ink.hf.trainer import (
     CausalLmTrainerConfig,
     build_causal_lm_trainer,
-    precision_label,
     reporting_disabled,
     tokens_per_optimizer_step,
     train_and_save,
@@ -135,30 +140,38 @@ def log_pretrain_banner(
     title: str,
     run_label: str,
     config: Gpt2PretrainConfig,
-) -> tuple[str, bool, bool]:
-    """Log run header / device info; return ``(device, use_fp16, use_bf16)``."""
+):
+    """Log run header / accelerator info; return ``AcceleratorInfo``."""
     header(logger=log)
     banner(title, logger=log)
     step(f"run: {run_label}", logger=log)
 
-    device, use_fp16, use_bf16 = device_info(
+    accel = collect_accelerator_info(
         prefer_bf16=config.trainer.prefer_bf16,
         prefer_fp16=config.trainer.prefer_fp16,
     )
-    world_size = distributed_world_size()
+    world_size = accel.world_size or distributed_world_size()
     tps = tokens_per_optimizer_step(
         per_device_train_batch_size=config.trainer.per_device_train_batch_size,
         gradient_accumulation_steps=config.trainer.gradient_accumulation_steps,
         block_size=config.data.block_size,
         world_size=world_size,
     )
+    gpu = accel.gpu_name or accel.device
     step(
-        f"Device: {device} "
-        f"(precision: {precision_label(use_fp16=use_fp16, use_bf16=use_bf16)})",
+        f"Device: {gpu} "
+        f"(precision: {accel.precision}, world_size={world_size})",
         logger=log,
     )
-    if world_size > 1:
-        step(f"World size: {world_size}", logger=log)
+    if accel.gpu_memory_total_gb is not None:
+        detail(f"GPU memory: {accel.gpu_memory_total_gb:g} GB", logger=log)
+    if accel.cuda_version:
+        detail(
+            f"CUDA {accel.cuda_version}"
+            + (f", cuDNN {accel.cudnn_version}" if accel.cudnn_version else ""),
+            logger=log,
+        )
+    detail(f"torch {accel.torch_version}", logger=log)
     step(
         f"Training steps: {config.trainer.max_steps:,} "
         f"(~{tps:,} tokens/step, "
@@ -167,7 +180,7 @@ def log_pretrain_banner(
     )
     if config.trainer.gradient_checkpointing:
         step("Gradient checkpointing enabled", logger=log)
-    return device, use_fp16, use_bf16
+    return accel, tps
 
 
 def pretrain_gpt2(
@@ -183,8 +196,11 @@ def pretrain_gpt2(
     wandb_name: str | None = None,
     use_wandb: bool | None = None,
     resume_from_checkpoint: str | Path | bool | None = None,
-) -> None:
+):
     """End-to-end: env → data → model → trainer → optional W&B train/save.
+
+    Returns ``(trainer, run_summary)`` when training finishes (summary may be
+    non-``None`` even on interrupt; failures still write a summary then re-raise).
 
     Pass ``wandb_entity`` / ``wandb_project`` / ``wandb_name`` explicitly (CLI
     flags or kwargs) to override code defaults. These are not read from the
@@ -193,6 +209,10 @@ def pretrain_gpt2(
     Set ``use_wandb=False`` (or ``trainer.report_to="none"``) to skip Weights &
     Biases entirely. ``resume_from_checkpoint`` follows HF Trainer semantics
     (path, ``True`` for latest checkpoint, or ``None``).
+
+    Always writes ``run_config.json`` before training and ``run_summary.json``
+    when training stops (completed, interrupted, or failed) under
+    ``trainer.output_dir``.
     """
     env_files = env_files if env_files is not None else (Path.cwd() / ".env",)
 
@@ -204,7 +224,9 @@ def pretrain_gpt2(
         config = with_trainer(config, report_to="none")
 
     config.validate()
-    log_pretrain_banner(title=title, run_label=run_label, config=config)
+    accel, tokens_per_step = log_pretrain_banner(
+        title=title, run_label=run_label, config=config
+    )
 
     blank(logger=log)
     step("Loading .env...", logger=log)
@@ -223,7 +245,22 @@ def pretrain_gpt2(
     if want_wandb:
         set_wandb_dir(config.trainer.output_dir)
     model, tokenizer = build_model_and_tokenizer(config.arch)
+    model_size = count_model_params(model, vocab_size=tokenizer.vocab_size)
     train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
+
+    # Persist the fully resolved recipe + hardware fingerprint before train.
+    config_payload = build_run_config_payload(
+        run_label=run_label,
+        run_name=config.trainer.run_name,
+        title=title,
+        configs={"data": config.data, "arch": config.arch, "trainer": config.trainer},
+        accelerator=accel,
+        model_size=model_size,
+        tokens_per_step=tokens_per_step,
+    )
+    blank(logger=log)
+    step("Writing run config...", logger=log)
+    save_run_config(config.trainer.output_dir, config_payload)
 
     trainer = build_causal_lm_trainer(
         model=model,
@@ -232,12 +269,17 @@ def pretrain_gpt2(
         eval_dataset=eval_dataset,
         config=config.trainer,
     )
+    software = collect_software_versions()
     run_config = build_run_config(
         run_label=run_label,
         env=env,
         configs={"data": config.data, "arch": config.arch, "trainer": config.trainer},
         prefer_bf16=config.trainer.prefer_bf16,
         prefer_fp16=config.trainer.prefer_fp16,
+        accelerator=accel,
+        tokens_per_step=tokens_per_step,
+        model=model_size.as_dict(),
+        software=software,
     )
 
     blank(logger=log)
@@ -249,9 +291,15 @@ def pretrain_gpt2(
         dir=config.trainer.output_dir,
         enabled=want_wandb,
     ):
-        train_and_save(
+        return train_and_save(
             trainer=trainer,
             tokenizer=tokenizer,
             output_dir=config.trainer.output_dir,
             resume_from_checkpoint=config.trainer.resume_from_checkpoint,
+            run_name=config.trainer.run_name,
+            run_label=run_label,
+            max_steps=config.trainer.max_steps,
+            tokens_per_step=tokens_per_step,
+            model_size=model_size,
+            accelerator=accel,
         )

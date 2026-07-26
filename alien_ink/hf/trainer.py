@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+from typing import Any
 
 from transformers import (
     DataCollatorForLanguageModeling,
@@ -12,10 +13,37 @@ from transformers import (
     TrainingArguments,
 )
 
-from alien_ink.device import device_info, distributed_world_size
+from alien_ink.device import (
+    AcceleratorInfo,
+    device_info,
+    distributed_world_size,
+    precision_label,
+)
+from alien_ink.hf.metrics import (
+    ModelSize,
+    RunSummary,
+    build_run_summary,
+    log_run_summary,
+    push_summary_to_wandb,
+    save_run_summary,
+)
 from alien_ink.log import blank, detail, get_logger, step
 
 log = get_logger("hf.trainer")
+
+__all__ = [
+    "CausalLmTrainerConfig",
+    "build_causal_lm_trainer",
+    "build_lm_data_collator",
+    "build_trainer_callbacks",
+    "build_training_arguments",
+    "has_eval_examples",
+    "precision_label",
+    "reporting_disabled",
+    "save_model_and_tokenizer",
+    "tokens_per_optimizer_step",
+    "train_and_save",
+]
 
 
 @dataclass(frozen=True)
@@ -87,14 +115,6 @@ def tokens_per_optimizer_step(
         * block_size
         * ws
     )
-
-
-def precision_label(*, use_fp16: bool, use_bf16: bool) -> str:
-    if use_bf16:
-        return "bf16"
-    if use_fp16:
-        return "fp16"
-    return "fp32"
 
 
 def has_eval_examples(eval_dataset) -> bool:
@@ -212,18 +232,104 @@ def save_model_and_tokenizer(trainer: Trainer, tokenizer, output_dir: Path) -> N
     detail(f"saved to {output_dir}", logger=log)
 
 
+def _trainer_global_step(trainer: Trainer) -> int:
+    state = getattr(trainer, "state", None)
+    if state is None:
+        return 0
+    return int(getattr(state, "global_step", 0) or 0)
+
+
+def summarize_training(
+    *,
+    trainer: Trainer,
+    run_name: str,
+    run_label: str,
+    status: str,
+    max_steps: int,
+    tokens_per_step: int,
+    model_size: ModelSize,
+    accelerator: AcceleratorInfo,
+    train_metrics: dict[str, Any] | None = None,
+    train_loss: float | None = None,
+) -> RunSummary:
+    """Build, persist, log, and (if active) push an end-of-run summary."""
+    summary = build_run_summary(
+        run_name=run_name,
+        run_label=run_label,
+        status=status,
+        global_step=_trainer_global_step(trainer),
+        max_steps=max_steps,
+        tokens_per_step=tokens_per_step,
+        train_runtime_sec=None,
+        train_loss=train_loss,
+        model_size=model_size,
+        accelerator=accelerator,
+        trainer_metrics=train_metrics,
+    )
+    blank(logger=log)
+    log_run_summary(summary)
+    save_run_summary(Path(trainer.args.output_dir), summary)
+    push_summary_to_wandb(summary)
+    return summary
+
+
 def train_and_save(
     *,
     trainer: Trainer,
     tokenizer,
     output_dir: Path,
     resume_from_checkpoint: str | Path | bool | None = None,
-) -> Trainer:
-    """Run ``trainer.train()`` then save model and tokenizer."""
+    run_name: str = "causal-lm",
+    run_label: str = "regular",
+    max_steps: int | None = None,
+    tokens_per_step: int = 0,
+    model_size: ModelSize | None = None,
+    accelerator: AcceleratorInfo | None = None,
+) -> tuple[Trainer, RunSummary | None]:
+    """Run ``trainer.train()``, save artifacts, and auto-summarize metrics.
+
+    Always attempts an end-of-run summary (completed / interrupted / failed)
+    when ``model_size`` and ``accelerator`` are provided so cross-GPU speed
+    comparisons have a local ``run_summary.json`` even without W&B.
+    """
     step("Starting training...", logger=log)
     if resume_from_checkpoint:
         detail(f"resume_from_checkpoint: {resume_from_checkpoint}", logger=log)
-    trainer.train(resume_from_checkpoint=resume_from_checkpoint)
-    blank(logger=log)
-    save_model_and_tokenizer(trainer, tokenizer, output_dir)
-    return trainer
+
+    status = "completed"
+    train_metrics: dict[str, Any] | None = None
+    train_loss: float | None = None
+    train_error: BaseException | None = None
+
+    try:
+        train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
+        train_metrics = dict(getattr(train_result, "metrics", None) or {})
+        train_loss = getattr(train_result, "training_loss", None)
+        blank(logger=log)
+        save_model_and_tokenizer(trainer, tokenizer, output_dir)
+    except KeyboardInterrupt:
+        status = "interrupted"
+        step("Training interrupted; writing run summary...", logger=log)
+    except Exception as exc:
+        status = "failed"
+        train_error = exc
+        step(f"Training failed ({type(exc).__name__}); writing run summary...", logger=log)
+
+    summary: RunSummary | None = None
+    if model_size is not None and accelerator is not None:
+        summary = summarize_training(
+            trainer=trainer,
+            run_name=run_name,
+            run_label=run_label,
+            status=status,
+            max_steps=max_steps if max_steps is not None else int(trainer.args.max_steps),
+            tokens_per_step=tokens_per_step,
+            model_size=model_size,
+            accelerator=accelerator,
+            train_metrics=train_metrics,
+            train_loss=train_loss,
+        )
+
+    if train_error is not None:
+        raise train_error
+    return trainer, summary

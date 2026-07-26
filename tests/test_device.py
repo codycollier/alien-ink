@@ -52,3 +52,20 @@ def test_resolve_precision_cuda_falls_back_to_fp16(monkeypatch):
         "cuda", prefer_bf16=True, prefer_fp16=True
     )
     assert (use_fp16, use_bf16) == (True, False)
+
+
+def test_lookup_peak_tflops_known_and_unknown():
+    assert device_mod.lookup_peak_tflops("NVIDIA GeForce RTX 3070", "bf16") == 20.31
+    assert device_mod.lookup_peak_tflops("Totally Fake GPU", "bf16") is None
+    assert device_mod.lookup_peak_tflops(None, "bf16") is None
+
+
+def test_collect_accelerator_info_cpu(monkeypatch):
+    monkeypatch.setattr(device_mod, "resolve_device", lambda: "cpu")
+    monkeypatch.setattr(device_mod.torch.cuda, "is_available", lambda: False)
+    info = device_mod.collect_accelerator_info()
+    assert info.device == "cpu"
+    assert info.precision == "fp32"
+    assert info.world_size >= 1
+    assert info.torch_version
+    assert info.gpu_name is None

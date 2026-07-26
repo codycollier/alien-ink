@@ -71,12 +71,16 @@ class Gpt2PretrainExperiment:
         use_wandb: bool | None = None,
         resume_from_checkpoint: str | Path | bool | None = None,
         **trainer_overrides,
-    ) -> None:
-        """Full pretraining run."""
+    ):
+        """Full pretraining run.
+
+        Returns ``(trainer, run_summary)``. ``run_summary.json`` / ``run_config.json``
+        are always written under the run ``output_dir``.
+        """
         cfg = self.base_config()
         if trainer_overrides:
             cfg = with_trainer(cfg, **trainer_overrides)
-        pretrain_gpt2(
+        return pretrain_gpt2(
             cfg,
             run_label="regular",
             title=self.title,
@@ -97,8 +101,11 @@ class Gpt2PretrainExperiment:
         use_wandb: bool | None = None,
         resume_from_checkpoint: str | Path | bool | None = None,
         **trainer_overrides,
-    ) -> None:
-        """Fast end-to-end smoke test (tiny steps / block size)."""
+    ):
+        """Fast end-to-end smoke test (tiny steps / block size).
+
+        Returns ``(trainer, run_summary)`` like :meth:`train`.
+        """
         flight_name = self.flight_check_run_name()
         base = self.base_config()
         data_overrides: dict = {
@@ -126,7 +133,7 @@ class Gpt2PretrainExperiment:
         )
         if trainer_overrides:
             cfg = with_trainer(cfg, **trainer_overrides)
-        pretrain_gpt2(
+        return pretrain_gpt2(
             cfg,
             run_label="flight_check",
             title=self.title,

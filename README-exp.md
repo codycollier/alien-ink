@@ -142,6 +142,21 @@ python -m alien_ink.exp.gpt2_pretrain_c4 --train \
 `--resume-from-checkpoint` alone auto-picks the latest checkpoint under the run
 `output_dir`; pass a path to resume from a specific directory.
 
+### Run artifacts (repro + speed comparison)
+
+Each training run writes two JSON files under the run `output_dir`
+(for example `output/gpt2-pretrain-wikitext/`):
+
+| File | When | Contents |
+|---|---|---|
+| `run_config.json` | before training | Fully resolved recipe (data / arch / trainer), accelerator fingerprint (GPU name, VRAM, CUDA, precision, world size), software versions, tokens/step |
+| `run_summary.json` | when training stops | Steps, tokens trained, wall time, tokens/sec, estimated TFLOP/s + MFU (Kaplan 6N), train loss, status (`completed` / `interrupted` / `failed`) |
+
+The same summary fields are pushed to the W&B run summary when W&B is enabled.
+Use identical recipe settings (especially `block_size`, batch size, and
+`gradient_accumulation_steps`) across machines to compare GPU speed fairly;
+`tokens_per_sec` and `tflops_per_sec` are the main cross-hardware metrics.
+
 ### Tests
 
 ```bash
