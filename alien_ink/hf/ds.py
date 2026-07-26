@@ -7,6 +7,10 @@ from dataclasses import dataclass
 
 from datasets import Dataset, IterableDataset, load_dataset
 
+from alien_ink.log import detail, get_logger, step
+
+log = get_logger("hf.ds")
+
 
 @dataclass(frozen=True)
 class HubTextSource:
@@ -217,16 +221,17 @@ def load_streaming_train_eval(
 
     source = data.source
     if verbose:
-        print(f">> Streaming {_source_label(source)} [{source.split}]...")
+        step(f"Streaming {_source_label(source)} [{source.split}]...", logger=log)
 
     train_stream = stream_hub_text(source, trust_remote_code=trust_remote_code)
 
     if data.eval_source is not None:
         eval_source = data.eval_source
         if verbose:
-            print(
-                f">> Materializing up to {data.max_eval_samples} eval rows "
-                f"from {_source_label(eval_source)} [{eval_source.split}]..."
+            step(
+                f"Materializing up to {data.max_eval_samples} eval rows "
+                f"from {_source_label(eval_source)} [{eval_source.split}]...",
+                logger=log,
             )
         eval_stream = stream_hub_text(eval_source, trust_remote_code=trust_remote_code)
         eval_dataset = materialize_prefix(eval_stream, data.max_eval_samples)
@@ -235,12 +240,21 @@ def load_streaming_train_eval(
             buffer_size=data.stream_shuffle_buffer,
         )
         if verbose:
-            print(f"   eval examples:  {len(eval_dataset):,} ({eval_source.split})")
-            print(f"   train examples: {_source_label(source)} (streaming)")
+            detail(
+                f"eval examples:  {len(eval_dataset):,} ({eval_source.split})",
+                logger=log,
+            )
+            detail(
+                f"train examples: {_source_label(source)} (streaming)",
+                logger=log,
+            )
         return train_stream, eval_dataset
 
     if verbose:
-        print(f">> Materializing {data.max_eval_samples} held-out eval rows...")
+        step(
+            f"Materializing {data.max_eval_samples} held-out eval rows...",
+            logger=log,
+        )
     eval_dataset = materialize_prefix(train_stream, data.max_eval_samples)
     train_stream = skip_and_shuffle(
         train_stream,
@@ -249,8 +263,11 @@ def load_streaming_train_eval(
         buffer_size=data.stream_shuffle_buffer,
     )
     if verbose:
-        print(f"   eval examples:  {len(eval_dataset):,} (held out)")
-        print(f"   train examples: {_source_label(source)} (streaming)")
+        detail(f"eval examples:  {len(eval_dataset):,} (held out)", logger=log)
+        detail(
+            f"train examples: {_source_label(source)} (streaming)",
+            logger=log,
+        )
     return train_stream, eval_dataset
 
 
@@ -275,9 +292,10 @@ def load_materialized_train_eval(
     source = data.source
     n_train = data.max_train_samples
     if verbose:
-        print(
-            f">> Materializing up to {n_train:,} train rows from "
-            f"{_source_label(source)} [{source.split}]..."
+        step(
+            f"Materializing up to {n_train:,} train rows from "
+            f"{_source_label(source)} [{source.split}]...",
+            logger=log,
         )
 
     train_stream = stream_hub_text(source, trust_remote_code=trust_remote_code)
@@ -285,9 +303,10 @@ def load_materialized_train_eval(
     if data.eval_source is not None:
         eval_source = data.eval_source
         if verbose:
-            print(
-                f">> Materializing up to {data.max_eval_samples} eval rows "
-                f"from {_source_label(eval_source)} [{eval_source.split}]..."
+            step(
+                f"Materializing up to {data.max_eval_samples} eval rows "
+                f"from {_source_label(eval_source)} [{eval_source.split}]...",
+                logger=log,
             )
         eval_stream = stream_hub_text(eval_source, trust_remote_code=trust_remote_code)
         eval_dataset = materialize_prefix(eval_stream, data.max_eval_samples)
@@ -295,7 +314,10 @@ def load_materialized_train_eval(
         eval_label = eval_source.split
     else:
         if verbose:
-            print(f">> Materializing {data.max_eval_samples} held-out eval rows...")
+            step(
+                f"Materializing {data.max_eval_samples} held-out eval rows...",
+                logger=log,
+            )
         eval_dataset = materialize_prefix(train_stream, data.max_eval_samples)
         train_stream = train_stream.skip(data.max_eval_samples)
         train_dataset = materialize_prefix(train_stream, n_train)
@@ -303,8 +325,11 @@ def load_materialized_train_eval(
 
     train_dataset = train_dataset.shuffle(seed=data.seed)
     if verbose:
-        print(f"   eval examples:  {len(eval_dataset):,} ({eval_label})")
-        print(f"   train examples: {len(train_dataset):,} (materialized)")
+        detail(f"eval examples:  {len(eval_dataset):,} ({eval_label})", logger=log)
+        detail(
+            f"train examples: {len(train_dataset):,} (materialized)",
+            logger=log,
+        )
     return train_dataset, eval_dataset
 
 

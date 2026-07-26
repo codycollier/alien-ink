@@ -13,6 +13,9 @@ from transformers import (
 )
 
 from alien_ink.device import device_info, distributed_world_size
+from alien_ink.log import blank, detail, get_logger, step
+
+log = get_logger("hf.trainer")
 
 
 @dataclass(frozen=True)
@@ -203,10 +206,10 @@ def build_causal_lm_trainer(
 
 
 def save_model_and_tokenizer(trainer: Trainer, tokenizer, output_dir: Path) -> None:
-    print(">> Saving model and tokenizer...")
+    step("Saving model and tokenizer...", logger=log)
     trainer.save_model(str(output_dir))
     tokenizer.save_pretrained(output_dir)
-    print(f"   saved to {output_dir}")
+    detail(f"saved to {output_dir}", logger=log)
 
 
 def train_and_save(
@@ -217,10 +220,10 @@ def train_and_save(
     resume_from_checkpoint: str | Path | bool | None = None,
 ) -> Trainer:
     """Run ``trainer.train()`` then save model and tokenizer."""
-    print(">> Starting training...")
+    step("Starting training...", logger=log)
     if resume_from_checkpoint:
-        print(f"   resume_from_checkpoint: {resume_from_checkpoint}")
+        detail(f"resume_from_checkpoint: {resume_from_checkpoint}", logger=log)
     trainer.train(resume_from_checkpoint=resume_from_checkpoint)
-    print()
+    blank(logger=log)
     save_model_and_tokenizer(trainer, tokenizer, output_dir)
     return trainer

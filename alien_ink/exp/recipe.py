@@ -18,6 +18,9 @@ from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.gen import SpotCheckConfig, run_spot_check
 from alien_ink.hf.pretrain import Gpt2PretrainConfig, pretrain_gpt2, with_data, with_trainer
 from alien_ink.hf.trainer import CausalLmTrainerConfig
+from alien_ink.log import get_logger
+
+log = get_logger("exp.recipe")
 
 
 @dataclass(frozen=True)
@@ -183,5 +186,5 @@ def run_main(experiment: Gpt2PretrainExperiment, argv: list[str] | None = None) 
     try:
         experiment.main(argv)
     except FileNotFoundError as exc:
-        print(f"Error: {exc}", file=sys.stderr)
+        log.error("Error: %s", exc)
         sys.exit(1)

@@ -7,6 +7,10 @@ from pathlib import Path
 
 from transformers import GPT2Config, GPT2LMHeadModel, GPT2Tokenizer
 
+from alien_ink.log import detail, get_logger, step
+
+log = get_logger("hf.model")
+
 
 @dataclass(frozen=True)
 class Gpt2ArchConfig:
@@ -52,7 +56,7 @@ def build_gpt2_from_scratch(
     arch = arch or Gpt2ArchConfig()
     arch.validate()
     if verbose:
-        print(">> Initializing GPT-2 from config with random weights...")
+        step("Initializing GPT-2 from config with random weights...", logger=log)
 
     model_config = GPT2Config(
         vocab_size=tokenizer.vocab_size,
@@ -68,7 +72,7 @@ def build_gpt2_from_scratch(
 
     if verbose:
         param_count = sum(p.numel() for p in model.parameters())
-        print(f"   parameters: {param_count:,}")
+        detail(f"parameters: {param_count:,}", logger=log)
     return model
 
 
@@ -80,7 +84,7 @@ def build_model_and_tokenizer(
     """Load tokenizer and initialize a GPT-2 model from scratch."""
     arch = arch or Gpt2ArchConfig()
     if verbose:
-        print(f">> Loading GPT-2 tokenizer ({arch.tokenizer_name})...")
+        step(f"Loading GPT-2 tokenizer ({arch.tokenizer_name})...", logger=log)
     tokenizer = load_gpt2_tokenizer(arch.tokenizer_name)
     model = build_gpt2_from_scratch(tokenizer, arch, verbose=verbose)
     return model, tokenizer
@@ -123,7 +127,7 @@ def load_pretrained_model(
 ) -> tuple[GPT2LMHeadModel, GPT2Tokenizer]:
     """Load a saved GPT-2 checkpoint onto ``device`` in eval mode."""
     if verbose:
-        print(f">> Loading model from {model_path}...")
+        step(f"Loading model from {model_path}...", logger=log)
     tokenizer = load_gpt2_tokenizer(model_path)
     model = GPT2LMHeadModel.from_pretrained(model_path)
     model.to(device)

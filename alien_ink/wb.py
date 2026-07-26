@@ -10,6 +10,9 @@ from typing import Any, Iterator
 
 from alien_ink.device import device_info
 from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, EnvConfig
+from alien_ink.log import detail, get_logger, step
+
+log = get_logger("wb")
 
 __all__ = [
     "DEFAULT_WANDB_ENTITY",
@@ -114,11 +117,11 @@ def wandb_run(
     import wandb  # lazy: keep wandb optional until a run is actually started
 
     root = set_wandb_dir(dir)
-    print(">> Starting Weights & Biases run...")
-    print(f"   entity:    {entity}")
-    print(f"   project:   {project}")
-    print(f"   name:      {name}")
-    print(f"   wandb dir: {root / 'wandb'}")
+    step("Starting Weights & Biases run...", logger=log)
+    detail(f"entity:    {entity}", logger=log)
+    detail(f"project:   {project}", logger=log)
+    detail(f"name:      {name}", logger=log)
+    detail(f"wandb dir: {root / 'wandb'}", logger=log)
     run = wandb.init(
         entity=entity,
         project=project,

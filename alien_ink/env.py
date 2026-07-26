@@ -8,9 +8,13 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
+from alien_ink.log import detail, get_logger
+
 # W&B team (entity) + project defaults used everywhere.
 DEFAULT_WANDB_ENTITY = "logbook"
 DEFAULT_WANDB_PROJECT = "ink-explore"
+
+log = get_logger("env")
 
 
 @dataclass(frozen=True)
@@ -59,11 +63,14 @@ def load_env(
 
     if verbose:
         shown = ", ".join(str(p) for p in env_files) if env_files else "(none)"
-        print(f"   env file(s):   {shown}")
-        print(f"   HF_TOKEN:      {'set' if hf_token else 'missing'}")
-        print(f"   WANDB_API_KEY: {'set' if wandb_api_key else 'missing'}")
-        print(f"   wandb entity:  {resolved_entity}")
-        print(f"   wandb project: {resolved_project}")
+        detail(f"env file(s):   {shown}", logger=log)
+        detail(f"HF_TOKEN:      {'set' if hf_token else 'missing'}", logger=log)
+        detail(
+            f"WANDB_API_KEY: {'set' if wandb_api_key else 'missing'}",
+            logger=log,
+        )
+        detail(f"wandb entity:  {resolved_entity}", logger=log)
+        detail(f"wandb project: {resolved_project}", logger=log)
 
     return EnvConfig(
         hf_token=hf_token,

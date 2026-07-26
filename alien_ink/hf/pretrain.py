@@ -21,7 +21,10 @@ from alien_ink.hf.trainer import (
     tokens_per_optimizer_step,
     train_and_save,
 )
+from alien_ink.log import banner, blank, detail, get_logger, header, step
 from alien_ink.wb import build_run_config, set_wandb_dir, wandb_run
+
+log = get_logger("hf.pretrain")
 
 
 @dataclass(frozen=True)
@@ -95,11 +98,11 @@ def prepare_lm_datasets(
     """
     train_raw, eval_raw = load_train_eval(data, verbose=verbose)
     if verbose:
-        print()
+        blank(logger=log)
         if isinstance(train_raw, IterableDataset):
-            print(">> Preprocessing datasets (train streams lazily)...")
+            step("Preprocessing datasets (train streams lazily)...", logger=log)
         else:
-            print(">> Preprocessing datasets...")
+            step("Preprocessing datasets...", logger=log)
     train_text_column = data.source.text_column
     eval_text_column = (data.eval_source or data.source).text_column
     train_dataset = tokenize_and_chunk(
@@ -118,8 +121,8 @@ def prepare_lm_datasets(
     )
     if verbose:
         if not isinstance(train_dataset, IterableDataset):
-            print(f"   train blocks: {len(train_dataset):,}")
-        print(f"   eval blocks:  {len(eval_dataset):,}")
+            detail(f"train blocks: {len(train_dataset):,}", logger=log)
+        detail(f"eval blocks:  {len(eval_dataset):,}", logger=log)
     if len(eval_dataset) == 0:
         raise ValueError(
             "No eval blocks produced; increase max_eval_samples or lower block_size."
@@ -133,11 +136,10 @@ def log_pretrain_banner(
     run_label: str,
     config: Gpt2PretrainConfig,
 ) -> tuple[str, bool, bool]:
-    """Print run header / device info; return ``(device, use_fp16, use_bf16)``."""
-    print("----------------------------------------------------------------------")
-    print(f":: {title}")
-    print("----------------------------------------------------------------------")
-    print(f">> run: {run_label}")
+    """Log run header / device info; return ``(device, use_fp16, use_bf16)``."""
+    header(logger=log)
+    banner(title, logger=log)
+    step(f"run: {run_label}", logger=log)
 
     device, use_fp16, use_bf16 = device_info(
         prefer_bf16=config.trainer.prefer_bf16,
@@ -150,19 +152,21 @@ def log_pretrain_banner(
         block_size=config.data.block_size,
         world_size=world_size,
     )
-    print(
-        f">> Device: {device} "
-        f"(precision: {precision_label(use_fp16=use_fp16, use_bf16=use_bf16)})"
+    step(
+        f"Device: {device} "
+        f"(precision: {precision_label(use_fp16=use_fp16, use_bf16=use_bf16)})",
+        logger=log,
     )
     if world_size > 1:
-        print(f">> World size: {world_size}")
-    print(
-        f">> Training steps: {config.trainer.max_steps:,} "
+        step(f"World size: {world_size}", logger=log)
+    step(
+        f"Training steps: {config.trainer.max_steps:,} "
         f"(~{tps:,} tokens/step, "
-        f"~{config.trainer.max_steps * tps:,} tokens total)"
+        f"~{config.trainer.max_steps * tps:,} tokens total)",
+        logger=log,
     )
     if config.trainer.gradient_checkpointing:
-        print(">> Gradient checkpointing enabled")
+        step("Gradient checkpointing enabled", logger=log)
     return device, use_fp16, use_bf16
 
 
@@ -202,8 +206,8 @@ def pretrain_gpt2(
     config.validate()
     log_pretrain_banner(title=title, run_label=run_label, config=config)
 
-    print()
-    print(">> Loading .env...")
+    blank(logger=log)
+    step("Loading .env...", logger=log)
     env = load_env(
         *env_files,
         wandb_entity=wandb_entity,
@@ -236,7 +240,7 @@ def pretrain_gpt2(
         prefer_fp16=config.trainer.prefer_fp16,
     )
 
-    print()
+    blank(logger=log)
     with wandb_run(
         entity=env.wandb_entity,
         project=env.wandb_project,

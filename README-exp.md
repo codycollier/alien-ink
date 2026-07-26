@@ -152,8 +152,24 @@ pytest
 ## Running in a notebook (Google Colab)
 
 Use this path in Google Colab (or any notebook / REPL) instead of the CLI.
-Call the experiment functions directly after the package is installed in the
-kernel environment.
+In a remote kernel there is no local checkout, so install the published package
+from PyPI (with the `hf` extras) before importing:
+
+```python
+%pip install "alien-ink[hf]"
+```
+
+Progress output uses the central `alien_ink` logger (clean `>>` / `::` lines,
+INFO on stdout). Optionally set the level before a run:
+
+```python
+from alien_ink.log import configure
+configure(level="INFO")  # or "WARNING" to quiet progress noise
+```
+
+Or set env `ALIEN_INK_LOG_LEVEL=WARNING` before starting the kernel / process.
+
+Then call the experiment functions:
 
 ```python
 from alien_ink.exp.gpt2_pretrain_wikitext import train, train_flight_check, spot_check

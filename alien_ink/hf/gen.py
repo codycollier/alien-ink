@@ -12,6 +12,9 @@ from transformers import PreTrainedModel, PreTrainedTokenizerBase
 from alien_ink.device import device_info
 from alien_ink.hf.ds import HubTextSource, load_text_prompts
 from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
+from alien_ink.log import banner, blank, get_logger, header, step
+
+log = get_logger("hf.gen")
 
 
 DEFAULT_PROMPTS = [
@@ -107,7 +110,7 @@ def collect_spot_check_prompts(
                 seed=spot.seed,
             )
         except Exception as exc:
-            print(f"   (corpus prompts skipped: {exc})")
+            log.warning("corpus prompts skipped: %s", exc)
     return pick_prompts(
         count=spot.num_samples,
         seed=spot.seed,
@@ -124,23 +127,25 @@ def run_spot_check(
     prefer_bf16: bool = True,
     prefer_fp16: bool = True,
 ) -> None:
-    """Load the newest checkpoint under ``output_dirs`` and print sample completions."""
+    """Load the newest checkpoint under ``output_dirs`` and log sample completions."""
     spot = spot or SpotCheckConfig()
 
-    print("----------------------------------------------------------------------")
-    print(f":: {title}")
-    print("----------------------------------------------------------------------")
+    header(logger=log)
+    banner(title, logger=log)
 
     device, _, _ = device_info(prefer_bf16=prefer_bf16, prefer_fp16=prefer_fp16)
-    print(f">> Device: {device}")
+    step(f"Device: {device}", logger=log)
 
     model_path = find_checkpoint_path(*output_dirs)
     model, tokenizer = load_pretrained_model(model_path, device)
 
-    print()
-    print(f">> Sampling {spot.num_samples} random prompts (seed={spot.seed})...")
+    blank(logger=log)
+    step(
+        f"Sampling {spot.num_samples} random prompts (seed={spot.seed})...",
+        logger=log,
+    )
     prompts = collect_spot_check_prompts(spot, text_source=text_source)
-    print()
+    blank(logger=log)
 
     for index, prompt in enumerate(prompts, start=1):
         completion = generate_completion(
@@ -153,9 +158,9 @@ def run_spot_check(
             top_p=spot.top_p,
             temperature=spot.temperature,
         )
-        print(f"--- sample {index} ---")
-        print(f"PROMPT:     {prompt}")
-        print(f"COMPLETION: {completion}")
-        print()
+        log.info("--- sample %s ---", index)
+        log.info("PROMPT:     %s", prompt)
+        log.info("COMPLETION: %s", completion)
+        blank(logger=log)
 
-    print("Done.")
+    log.info("Done.")
