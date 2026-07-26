@@ -59,10 +59,12 @@ python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --spot-check
 python -m alien_ink.exp.gpt2_pretrain_c4 --spot-check
 ```
 
-Background Wikipedia pretrain with a timestamped log (see `bin/`):
+Background pretrain with a timestamped log (see `bin/`):
 
 ```bash
+./bin/gpt2_pretrain_wikitext.sh
 ./bin/gpt2_pretrain_wikipedia_english.sh
+./bin/gpt2_pretrain_c4.sh
 ```
 
 ### Weights & Biases (entity / project / run name)
@@ -85,7 +87,9 @@ python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check --no-wandb
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --flight-check --no-wandb
 python -m alien_ink.exp.gpt2_pretrain_c4 --flight-check --no-wandb
 
+./bin/gpt2_pretrain_wikitext.sh
 ./bin/gpt2_pretrain_wikipedia_english.sh
+./bin/gpt2_pretrain_c4.sh
 ```
 
 ### Training overrides / resume
