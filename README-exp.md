@@ -174,6 +174,22 @@ from PyPI (with the `hf` extras) before importing:
 %pip install "alien-ink[hf]"
 ```
 
+### API keys (HF + W&B)
+
+Put credentials in a `.env` file in the kernel working directory (same keys as
+`.env.example`) so they are not stored in the notebook itself:
+
+```text
+# https://huggingface.co/settings/tokens
+HF_TOKEN=hf_...
+# https://wandb.ai/authorize
+WANDB_API_KEY=...
+```
+
+Do not put W&B entity / project / run name in `.env` — pass those as function
+kwargs (below). Ensure the kernel cwd is where you want `.env` and `output/` to
+live (paths resolve at call time, not import time).
+
 Progress output uses the central `alien_ink` logger (clean `>>` / `::` lines,
 INFO on stdout). Optionally set the level before a run:
 
@@ -202,7 +218,3 @@ train(
     wandb_name="my-run",
 )
 ```
-
-Ensure the notebook kernel’s working directory is where you want `.env` and
-`output/` to live (paths are resolved when you call the functions, not at
-import time).
