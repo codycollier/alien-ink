@@ -33,7 +33,8 @@ experiments from the shell (or a background `bin/` script).
 ```bash
 uv venv
 source .venv/bin/activate
-uv pip install -e ".[hf]"
+# PyPI torch is CUDA 13.0; cu126 works with CUDA 12.x drivers (e.g. 12.2).
+UV_TORCH_BACKEND=cu126 uv pip install -e ".[hf]"
 cp .env.example .env   # then fill in HF_TOKEN / WANDB_API_KEY
 ```
 
@@ -160,7 +161,7 @@ Use identical recipe settings (especially `block_size`, batch size, and
 ### Tests
 
 ```bash
-uv pip install -e ".[hf,test]"
+UV_TORCH_BACKEND=cu126 uv pip install -e ".[hf,test]"
 pytest
 ```
 

@@ -75,4 +75,18 @@ include = [
 [tool.hatch.build.targets.wheel]
 packages = ["alien_ink"]
 
+# PyPI torch defaults to CUDA 13.0 (needs driver >= 580). Pin the CUDA 12.6
+# index for Linux/Windows so older drivers (e.g. CUDA 12.2) still get a GPU
+# build. macOS falls back to PyPI (no CUDA wheels there).
+# For `uv pip install`, also set UV_TORCH_BACKEND=cu126 (see bin/exp-setup.sh).
+[[tool.uv.index]]
+name = "pytorch-cu126"
+url = "https://download.pytorch.org/whl/cu126"
+explicit = true
+
+[tool.uv.sources]
+torch = [
+    { index = "pytorch-cu126", marker = "sys_platform == 'linux' or sys_platform == 'win32'" },
+]
+
 
