@@ -19,6 +19,7 @@ from alien_ink.device import (
     distributed_world_size,
     precision_label,
 )
+from alien_ink.hf.xla_ckpt import native_gradient_checkpointing_supported
 from alien_ink.hf.metrics import (
     ModelSize,
     RunSummary,
@@ -148,13 +149,26 @@ def build_training_arguments(
         "none" if reporting_disabled(config.report_to) else config.report_to
     )
 
+    # Native ``torch.utils.checkpoint`` does ``getattr(torch, device)`` and
+    # raises ``AttributeError: module 'torch' has no attribute 'xla'`` on TPU.
+    use_grad_ckpt = (
+        config.gradient_checkpointing
+        and native_gradient_checkpointing_supported(device)
+    )
+    if config.gradient_checkpointing and not use_grad_ckpt:
+        detail(
+            "gradient_checkpointing disabled on XLA/TPU "
+            "(native torch checkpoint is unsupported)",
+            logger=log,
+        )
+
     return TrainingArguments(
         output_dir=str(config.output_dir),
         max_steps=config.max_steps,
         per_device_train_batch_size=config.per_device_train_batch_size,
         per_device_eval_batch_size=config.per_device_eval_batch_size,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
-        gradient_checkpointing=config.gradient_checkpointing,
+        gradient_checkpointing=use_grad_ckpt,
         learning_rate=config.learning_rate,
         lr_scheduler_type=config.lr_scheduler_type,
         warmup_steps=config.warmup_steps,

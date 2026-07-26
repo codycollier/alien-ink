@@ -235,6 +235,10 @@ On a TPU notebook, `train` / `train_flight_check` auto-wrap with Accelerate's
 `tpu_num_processes=N`. That path returns `(None, None)`; check
 `output/.../run_summary.json` for metrics.
 
+Gradient checkpointing is auto-disabled on XLA/TPU: PyTorch's native
+`torch.utils.checkpoint` crashes with `module 'torch' has no attribute 'xla'`.
+TPU HBM is usually enough for GPT-2 small without it.
+
 ### CLI on a Cloud TPU VM
 
 Launch multi-core training with XLA spawn (do not run bare `python -m` if you
