@@ -5,11 +5,12 @@ from __future__ import annotations
 from dataclasses import dataclass, field, replace
 from pathlib import Path
 
+from datasets import IterableDataset
 from transformers import set_seed
 
 from alien_ink.device import device_info, distributed_world_size
 from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, load_env
-from alien_ink.hf.ds import PretrainDataConfig, load_streaming_train_eval
+from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
 from alien_ink.hf.model import Gpt2ArchConfig, build_model_and_tokenizer
 from alien_ink.hf.tok import tokenize_and_chunk
 from alien_ink.hf.trainer import (
@@ -87,11 +88,18 @@ def prepare_lm_datasets(
     *,
     verbose: bool = True,
 ):
-    """Stream/tokenize a Hub corpus into train (iterable) and eval (map-style) LM blocks."""
-    train_raw, eval_raw = load_streaming_train_eval(data, verbose=verbose)
+    """Load/tokenize a Hub corpus into train and eval LM blocks.
+
+    Train is an iterable stream when ``max_train_samples`` is unset, otherwise
+    a materialized map-style dataset. Eval is always map-style.
+    """
+    train_raw, eval_raw = load_train_eval(data, verbose=verbose)
     if verbose:
         print()
-        print(">> Preprocessing datasets (train streams lazily)...")
+        if isinstance(train_raw, IterableDataset):
+            print(">> Preprocessing datasets (train streams lazily)...")
+        else:
+            print(">> Preprocessing datasets...")
     train_text_column = data.source.text_column
     eval_text_column = (data.eval_source or data.source).text_column
     train_dataset = tokenize_and_chunk(
@@ -109,6 +117,8 @@ def prepare_lm_datasets(
         num_proc=data.tokenizer_num_proc,
     )
     if verbose:
+        if not isinstance(train_dataset, IterableDataset):
+            print(f"   train blocks: {len(train_dataset):,}")
         print(f"   eval blocks:  {len(eval_dataset):,}")
     if len(eval_dataset) == 0:
         raise ValueError(

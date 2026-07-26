@@ -29,6 +29,47 @@ def test_flight_check_run_name_appends_suffix():
     assert exp.flight_check_run_name() == "gpt2-pretrain-wikitext-flight-check"
 
 
+def test_subset_experiment_defaults():
+    from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import EXPERIMENT
+
+    cfg = EXPERIMENT.base_config()
+    assert cfg.data.max_train_samples == 20_000
+    assert cfg.data.max_eval_samples == 1_000
+    assert cfg.trainer.max_steps == 2_000
+    assert cfg.trainer.warmup_steps == 200
+    assert EXPERIMENT.run_name == "gpt2-pretrain-wpe-subset"
+
+
+def test_flight_check_shrinks_materialized_train(monkeypatch):
+    def _subset_data(**_kwargs) -> PretrainDataConfig:
+        return PretrainDataConfig(
+            source=HubTextSource(dataset="dummy"),
+            max_train_samples=20_000,
+            max_eval_samples=1_000,
+        )
+
+    captured: dict = {}
+
+    def fake_pretrain(cfg, **_kwargs):
+        captured["data"] = cfg.data
+        captured["trainer"] = cfg.trainer
+
+    monkeypatch.setattr("alien_ink.exp.recipe.pretrain_gpt2", fake_pretrain)
+    exp = Gpt2PretrainExperiment(
+        run_name="subset-run",
+        title="t",
+        spot_check_title="s",
+        data_factory=_subset_data,
+        module_description="d",
+        max_steps=2_000,
+        warmup_steps=200,
+    )
+    exp.train_flight_check(use_wandb=False)
+    assert captured["data"].max_train_samples == 50
+    assert captured["data"].max_eval_samples == 10
+    assert captured["trainer"].max_steps == 10
+
+
 def test_paths_resolve_from_cwd(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
     exp = Gpt2PretrainExperiment(

@@ -29,6 +29,8 @@ class Gpt2PretrainExperiment:
     spot_check_title: str
     data_factory: Callable[..., PretrainDataConfig]
     module_description: str
+    max_steps: int = 50_000
+    warmup_steps: int = 2_000
 
     def workdir(self) -> Path:
         return Path.cwd()
@@ -43,16 +45,16 @@ class Gpt2PretrainExperiment:
         return f"{self.run_name}-flight-check"
 
     def base_config(self) -> Gpt2PretrainConfig:
-        """Full pretrain defaults (~1.6B tokens at 50k steps)."""
+        """Full pretrain defaults (~1.6B tokens at 50k steps unless overridden)."""
         return Gpt2PretrainConfig(
             data=self.data_factory(),
             trainer=CausalLmTrainerConfig(
                 output_dir=self.output_root() / self.run_name,
-                max_steps=50_000,
+                max_steps=self.max_steps,
                 per_device_train_batch_size=2,
                 gradient_accumulation_steps=16,
                 learning_rate=6e-4,
-                warmup_steps=2_000,
+                warmup_steps=self.warmup_steps,
                 run_name=self.run_name,
             ),
         )
@@ -95,9 +97,18 @@ class Gpt2PretrainExperiment:
     ) -> None:
         """Fast end-to-end smoke test (tiny steps / block size)."""
         flight_name = self.flight_check_run_name()
+        base = self.base_config()
+        data_overrides: dict = {
+            "max_eval_samples": 10,
+            "stream_shuffle_buffer": 50,
+            "block_size": 128,
+        }
+        # Keep flight checks cheap for materialized subset corpora.
+        if base.data.max_train_samples is not None:
+            data_overrides["max_train_samples"] = 50
         cfg = with_data(
             with_trainer(
-                self.base_config(),
+                base,
                 output_dir=self.output_root() / flight_name,
                 max_steps=10,
                 warmup_steps=0,
@@ -108,9 +119,7 @@ class Gpt2PretrainExperiment:
                 save_steps=10,
                 run_name=flight_name,
             ),
-            max_eval_samples=10,
-            stream_shuffle_buffer=50,
-            block_size=128,
+            **data_overrides,
         )
         if trainer_overrides:
             cfg = with_trainer(cfg, **trainer_overrides)

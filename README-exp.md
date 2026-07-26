@@ -7,8 +7,14 @@ spot-check of the newest checkpoint.
 | Experiment | Module |
 |---|---|
 | WikiText-103 | `alien_ink.exp.gpt2_pretrain_wikitext` |
+| WikiText-103 (20k subset) | `alien_ink.exp.gpt2_pretrain_wikitext_subset` |
 | English Wikipedia | `alien_ink.exp.gpt2_pretrain_wikipedia_english` |
+| English Wikipedia (20k subset) | `alien_ink.exp.gpt2_pretrain_wikipedia_english_subset` |
 | C4 (English) | `alien_ink.exp.gpt2_pretrain_c4` |
+| C4 English (20k subset) | `alien_ink.exp.gpt2_pretrain_c4_subset` |
+
+Subset experiments materialize a small prefix (~20k train + 1k eval) instead of
+streaming the full corpus, and use shorter default training (`max_steps=2000`).
 
 Mode flags (`--train`, `--flight-check`, `--spot-check`) are mutually exclusive.
 Flight-check W&B / Trainer run names are `{run_name}-flight-check` (for example
@@ -41,6 +47,9 @@ Flight check (fast end-to-end smoke test):
 python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --flight-check
 python -m alien_ink.exp.gpt2_pretrain_c4 --flight-check
+python -m alien_ink.exp.gpt2_pretrain_wikitext_subset --flight-check
+python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --flight-check
+python -m alien_ink.exp.gpt2_pretrain_c4_subset --flight-check
 ```
 
 Full training run:
@@ -49,6 +58,9 @@ Full training run:
 python -m alien_ink.exp.gpt2_pretrain_wikitext --train
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --train
 python -m alien_ink.exp.gpt2_pretrain_c4 --train
+python -m alien_ink.exp.gpt2_pretrain_wikitext_subset --train
+python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --train
+python -m alien_ink.exp.gpt2_pretrain_c4_subset --train
 ```
 
 Spot-check completions from the latest saved checkpoint:
@@ -57,6 +69,9 @@ Spot-check completions from the latest saved checkpoint:
 python -m alien_ink.exp.gpt2_pretrain_wikitext --spot-check
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --spot-check
 python -m alien_ink.exp.gpt2_pretrain_c4 --spot-check
+python -m alien_ink.exp.gpt2_pretrain_wikitext_subset --spot-check
+python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --spot-check
+python -m alien_ink.exp.gpt2_pretrain_c4_subset --spot-check
 ```
 
 Background pretrain with a timestamped log (see `bin/`):
@@ -65,6 +80,9 @@ Background pretrain with a timestamped log (see `bin/`):
 ./bin/gpt2_pretrain_wikitext.sh
 ./bin/gpt2_pretrain_wikipedia_english.sh
 ./bin/gpt2_pretrain_c4.sh
+./bin/gpt2_pretrain_wikitext_subset.sh
+./bin/gpt2_pretrain_wikipedia_english_subset.sh
+./bin/gpt2_pretrain_c4_subset.sh
 ```
 
 ### Weights & Biases (entity / project / run name)
@@ -78,18 +96,15 @@ to skip W&B entirely.
 ```bash
 python -m alien_ink.exp.gpt2_pretrain_wikitext --train \
   --wandb-entity logbook --wandb-project ink-explore --wandb-name my-run
-python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --train \
-  --wandb-entity logbook --wandb-project ink-explore --wandb-name my-run
-python -m alien_ink.exp.gpt2_pretrain_c4 --train \
-  --wandb-entity logbook --wandb-project ink-explore --wandb-name my-run
+python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --train \
+  --wandb-entity logbook --wandb-project ink-explore \
+  --wandb-name gpt2-pretrain-wpe-subset
 
 python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check --no-wandb
-python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --flight-check --no-wandb
-python -m alien_ink.exp.gpt2_pretrain_c4 --flight-check --no-wandb
+python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --flight-check --no-wandb
 
 ./bin/gpt2_pretrain_wikitext.sh
-./bin/gpt2_pretrain_wikipedia_english.sh
-./bin/gpt2_pretrain_c4.sh
+./bin/gpt2_pretrain_wikipedia_english_subset.sh
 ```
 
 ### Training overrides / resume
@@ -126,8 +141,9 @@ python -m alien_ink.exp.gpt2_pretrain_c4 --train \
 
 ```python
 from alien_ink.exp.gpt2_pretrain_wikitext import train, train_flight_check, spot_check
-# from alien_ink.exp.gpt2_pretrain_wikipedia_english import train, train_flight_check, spot_check
-# from alien_ink.exp.gpt2_pretrain_c4 import train, train_flight_check, spot_check
+# from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
+#     train, train_flight_check, spot_check,
+# )
 
 train_flight_check(use_wandb=False)  # smoke test
 # train(resume_from_checkpoint=True)
