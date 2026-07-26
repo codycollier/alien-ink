@@ -25,6 +25,55 @@ class EnvConfig:
     wandb_project: str
 
 
+def in_colab() -> bool:
+    """Return True when running inside Google Colab."""
+    try:
+        import google.colab  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _colab_secret(name: str) -> str | None:
+    """Read a Colab notebook secret, or None if missing / inaccessible."""
+    try:
+        from google.colab import userdata
+    except ImportError:
+        return None
+    try:
+        value = userdata.get(name)
+    except Exception:
+        return None
+    if value is None:
+        return None
+    value = str(value).strip()
+    return value or None
+
+
+def _apply_colab_secrets() -> bool:
+    """Copy Colab Secrets into ``os.environ`` for any unset credential keys.
+
+    Expects notebook secrets named ``HF_TOKEN`` and ``WANDB_API_KEY`` (grant
+    notebook access in the Colab Secrets panel). Returns True when Colab is
+    detected.
+    """
+    if not in_colab():
+        return False
+
+    if not os.getenv("HF_TOKEN") and not os.getenv("HUGGING_FACE_HUB_TOKEN"):
+        token = _colab_secret("HF_TOKEN") or _colab_secret("HUGGING_FACE_HUB_TOKEN")
+        if token:
+            os.environ["HF_TOKEN"] = token
+            os.environ.setdefault("HUGGING_FACE_HUB_TOKEN", token)
+
+    if not os.getenv("WANDB_API_KEY"):
+        key = _colab_secret("WANDB_API_KEY")
+        if key:
+            os.environ["WANDB_API_KEY"] = key
+
+    return True
+
+
 def load_env(
     *env_files: Path,
     wandb_entity: str | None = None,
@@ -35,6 +84,9 @@ def load_env(
 ) -> EnvConfig:
     """Load dotenv files and normalize HF / W&B API credentials.
 
+    In Google Colab, also reads ``HF_TOKEN`` / ``WANDB_API_KEY`` from the
+    notebook Secrets panel when those vars are not already set.
+
     W&B entity / project come from kwargs or the code fallbacks only — never
     from the process environment or ``.env``. Pass entity / project / run name
     via CLI flags or function kwargs instead.
@@ -43,6 +95,8 @@ def load_env(
         load_dotenv(env_files[0])
         for path in env_files[1:]:
             load_dotenv(path, override=True)
+
+    colab = _apply_colab_secrets()
 
     # Entity / project / run name are CLI/kwargs only — drop any values dotenv
     # (or the parent shell) may have set so the W&B SDK cannot pick them up.
@@ -64,6 +118,7 @@ def load_env(
     if verbose:
         shown = ", ".join(str(p) for p in env_files) if env_files else "(none)"
         detail(f"env file(s):   {shown}", logger=log)
+        detail(f"colab secrets: {'yes' if colab else 'no'}", logger=log)
         detail(f"HF_TOKEN:      {'set' if hf_token else 'missing'}", logger=log)
         detail(
             f"WANDB_API_KEY: {'set' if wandb_api_key else 'missing'}",

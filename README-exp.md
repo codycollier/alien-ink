@@ -176,19 +176,17 @@ from PyPI (with the `hf` extras) before importing:
 
 ### API keys (HF + W&B)
 
-Put credentials in a `.env` file in the kernel working directory (same keys as
-`.env.example`) so they are not stored in the notebook itself:
+In Google Colab, store credentials in the **Secrets** panel (key icon in the
+left sidebar) — not in notebook cells. Add secrets named `HF_TOKEN` and
+`WANDB_API_KEY`, toggle **Notebook access** on for each, then run as usual.
+`load_env` detects Colab and reads those secrets automatically.
 
-```text
-# https://huggingface.co/settings/tokens
-HF_TOKEN=hf_...
-# https://wandb.ai/authorize
-WANDB_API_KEY=...
-```
+- `HF_TOKEN`: https://huggingface.co/settings/tokens
+- `WANDB_API_KEY`: https://wandb.ai/authorize
 
-Do not put W&B entity / project / run name in `.env` — pass those as function
-kwargs (below). Ensure the kernel cwd is where you want `.env` and `output/` to
-live (paths resolve at call time, not import time).
+Do not put W&B entity / project / run name in Secrets — pass those as function
+kwargs (below). Ensure the kernel cwd is where you want `output/` to live
+(paths resolve at call time, not import time).
 
 Progress output uses the central `alien_ink` logger (clean `>>` / `::` lines,
 INFO on stdout). Optionally set the level before a run:

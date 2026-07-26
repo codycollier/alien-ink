@@ -229,7 +229,7 @@ def pretrain_gpt2(
     )
 
     blank(logger=log)
-    step("Loading .env...", logger=log)
+    step("Loading credentials...", logger=log)
     env = load_env(
         *env_files,
         wandb_entity=wandb_entity,
