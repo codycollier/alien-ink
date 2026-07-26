@@ -25,10 +25,10 @@ def test_text_to_prompt_hard_limit_fallback():
 
 
 def test_pretrain_data_config_validate():
-    cfg = PretrainDataConfig(source=HubTextSource(dataset="wikitext"))
+    cfg = PretrainDataConfig(source=HubTextSource(dataset="Salesforce/wikitext"))
     cfg.validate()
     with pytest.raises(ValueError, match="block_size"):
         PretrainDataConfig(
-            source=HubTextSource(dataset="wikitext"),
+            source=HubTextSource(dataset="Salesforce/wikitext"),
             block_size=0,
         ).validate()

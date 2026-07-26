@@ -45,7 +45,7 @@ def test_reporting_disabled():
 
 def test_resolve_use_wandb_explicit_and_report_to():
     cfg = Gpt2PretrainConfig(
-        data=PretrainDataConfig(source=HubTextSource(dataset="wikitext")),
+        data=PretrainDataConfig(source=HubTextSource(dataset="Salesforce/wikitext")),
         trainer=CausalLmTrainerConfig(
             output_dir=Path("output/x"),
             report_to="wandb",
@@ -61,7 +61,7 @@ def test_resolve_use_wandb_explicit_and_report_to():
 def test_pretrain_config_validate_block_vs_positions():
     cfg = Gpt2PretrainConfig(
         data=PretrainDataConfig(
-            source=HubTextSource(dataset="wikitext"),
+            source=HubTextSource(dataset="Salesforce/wikitext"),
             block_size=2048,
         ),
         arch=Gpt2ArchConfig(n_positions=1024),

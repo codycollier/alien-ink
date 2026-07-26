@@ -72,8 +72,10 @@ def wikitext_103(
 ) -> PretrainDataConfig:
     """WikiText-103 (train + validation splits)."""
     return PretrainDataConfig(
-        source=HubTextSource(dataset="wikitext", name=name, split="train"),
-        eval_source=HubTextSource(dataset="wikitext", name=name, split="validation"),
+        source=HubTextSource(dataset="Salesforce/wikitext", name=name, split="train"),
+        eval_source=HubTextSource(
+            dataset="Salesforce/wikitext", name=name, split="validation"
+        ),
         max_eval_samples=max_eval_samples,
     )
 

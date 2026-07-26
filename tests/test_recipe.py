@@ -15,7 +15,7 @@ from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 
 
 def _fake_data(**_kwargs) -> PretrainDataConfig:
-    return PretrainDataConfig(source=HubTextSource(dataset="wikitext", name="x"))
+    return PretrainDataConfig(source=HubTextSource(dataset="Salesforce/wikitext", name="x"))
 
 
 def test_flight_check_run_name_appends_suffix():
