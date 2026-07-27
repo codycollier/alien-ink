@@ -35,7 +35,8 @@ _REF_LOGGING_STEPS = 50
 _REF_EVAL_STEPS = 1_000
 _REF_SAVE_STEPS = 1_000
 _CADENCE_KEYS = frozenset({"logging_steps", "eval_steps", "save_steps"})
-# Epoch-based subset runs eval/save once per epoch; keep a modest log cadence.
+# Placeholder until build_causal_lm_trainer derives epoch cadence from dataset size
+# (~5 evals/epoch including epoch end).
 _EPOCH_LOGGING_STEPS = 10
 
 

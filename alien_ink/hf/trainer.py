@@ -2,7 +2,8 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+import math
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
 
@@ -10,6 +11,7 @@ from transformers import (
     DataCollatorForLanguageModeling,
     EarlyStoppingCallback,
     Trainer,
+    TrainerCallback,
     TrainingArguments,
 )
 
@@ -37,17 +39,26 @@ log = get_logger("hf.trainer")
 
 __all__ = [
     "CausalLmTrainerConfig",
+    "DEFAULT_EPOCH_EVALS_PER_EPOCH",
+    "apply_epoch_cadence",
     "build_causal_lm_trainer",
     "build_lm_data_collator",
     "build_trainer_callbacks",
     "build_training_arguments",
+    "epoch_cadence_steps",
     "has_eval_examples",
+    "optimizer_steps_per_epoch",
     "precision_label",
     "reporting_disabled",
     "save_model_and_tokenizer",
     "tokens_per_optimizer_step",
     "train_and_save",
 ]
+
+# Subset / epoch runs: evaluate this many times per epoch (last tick = epoch end).
+DEFAULT_EPOCH_EVALS_PER_EPOCH = 5
+# Match the streamed reference ratio (50 log / 1000 eval ≈ 20 logs per eval).
+_LOGS_PER_EVAL_INTERVAL = 20
 
 
 @dataclass(frozen=True)
@@ -138,6 +149,100 @@ def tokens_per_optimizer_step(
     )
 
 
+def optimizer_steps_per_epoch(
+    num_examples: int,
+    *,
+    per_device_train_batch_size: int,
+    gradient_accumulation_steps: int,
+    world_size: int | None = None,
+) -> int:
+    """Optimizer steps in one epoch (matches HF ``Trainer`` dataloader math)."""
+    if num_examples < 1:
+        raise ValueError(f"num_examples must be >= 1, got {num_examples}")
+    if per_device_train_batch_size < 1:
+        raise ValueError(
+            "per_device_train_batch_size must be >= 1, "
+            f"got {per_device_train_batch_size}"
+        )
+    if gradient_accumulation_steps < 1:
+        raise ValueError(
+            "gradient_accumulation_steps must be >= 1, "
+            f"got {gradient_accumulation_steps}"
+        )
+    ws = distributed_world_size() if world_size is None else max(1, world_size)
+    len_dataloader = math.ceil(num_examples / (per_device_train_batch_size * ws))
+    return max(
+        len_dataloader // gradient_accumulation_steps
+        + int(len_dataloader % gradient_accumulation_steps > 0),
+        1,
+    )
+
+
+def epoch_cadence_steps(
+    steps_per_epoch: int,
+    *,
+    evals_per_epoch: int = DEFAULT_EPOCH_EVALS_PER_EPOCH,
+) -> dict[str, int]:
+    """Log / eval / save cadence for epoch-based runs.
+
+    Targets ``evals_per_epoch`` evenly spaced step evals (``steps // N``). The
+    last scheduled eval lands on epoch end when ``steps`` divides evenly;
+    otherwise :class:`_EpochEndEvalCallback` covers the epoch boundary.
+    Checkpoints once per eval-group (≈ once per epoch); logging tracks the
+    streamed reference density (~20 logs / eval).
+    """
+    if steps_per_epoch < 1:
+        raise ValueError(f"steps_per_epoch must be >= 1, got {steps_per_epoch}")
+    if evals_per_epoch < 1:
+        raise ValueError(f"evals_per_epoch must be >= 1, got {evals_per_epoch}")
+    n = min(evals_per_epoch, steps_per_epoch)
+    eval_steps = max(1, steps_per_epoch // n)
+    return {
+        "logging_steps": max(1, eval_steps // _LOGS_PER_EVAL_INTERVAL),
+        "eval_steps": eval_steps,
+        "save_steps": eval_steps * n,
+    }
+
+
+def apply_epoch_cadence(
+    config: CausalLmTrainerConfig,
+    *,
+    num_train_examples: int,
+    world_size: int | None = None,
+    evals_per_epoch: int = DEFAULT_EPOCH_EVALS_PER_EPOCH,
+) -> CausalLmTrainerConfig:
+    """Set step-based log/eval/save cadence for an epoch-length run."""
+    if not config.uses_epochs():
+        return config
+    steps = optimizer_steps_per_epoch(
+        num_train_examples,
+        per_device_train_batch_size=config.per_device_train_batch_size,
+        gradient_accumulation_steps=config.gradient_accumulation_steps,
+        world_size=world_size,
+    )
+    cadence = epoch_cadence_steps(steps, evals_per_epoch=evals_per_epoch)
+    detail(
+        f"epoch cadence: {steps:,} steps/epoch → "
+        f"log every {cadence['logging_steps']}, "
+        f"eval every {cadence['eval_steps']} "
+        f"(~{evals_per_epoch}×/epoch incl. epoch end), "
+        f"save every {cadence['save_steps']}",
+        logger=log,
+    )
+    return replace(config, **cadence)
+
+
+class _EpochEndEvalCallback(TrainerCallback):
+    """Ensure an eval runs at epoch end when step cadence misses the boundary."""
+
+    def on_epoch_end(self, args, state, control, **kwargs):
+        if args.eval_strategy != "steps" or args.eval_steps < 1:
+            return control
+        if state.global_step > 0 and state.global_step % args.eval_steps != 0:
+            control.should_evaluate = True
+        return control
+
+
 def has_eval_examples(eval_dataset) -> bool:
     return eval_dataset is not None and len(eval_dataset) > 0
 
@@ -189,11 +294,10 @@ def build_training_arguments(
         optim_kwargs["optim"] = optim
         detail(f"optimizer: {optim} (fused AdamW unsupported on XLA)", logger=log)
 
-    by_epoch = config.uses_epochs()
+    # Epoch-based subset runs use step cadence (N evals/epoch including epoch end)
+    # rather than HF's once-per-epoch strategy.
     if not has_eval:
         eval_strategy = "no"
-    elif by_epoch:
-        eval_strategy = "epoch"
     else:
         eval_strategy = "steps"
 
@@ -215,7 +319,7 @@ def build_training_arguments(
         logging_steps=config.logging_steps,
         eval_strategy=eval_strategy,
         eval_steps=config.eval_steps,
-        save_strategy="epoch" if by_epoch else "steps",
+        save_strategy="steps",
         save_steps=config.save_steps,
         save_total_limit=config.save_total_limit,
         load_best_model_at_end=has_eval,
@@ -246,6 +350,8 @@ def build_trainer_callbacks(
     has_eval: bool,
 ) -> list:
     callbacks = []
+    if has_eval and config.uses_epochs():
+        callbacks.append(_EpochEndEvalCallback())
     if has_eval and config.early_stopping_patience > 0:
         callbacks.append(
             EarlyStoppingCallback(
@@ -265,6 +371,16 @@ def build_causal_lm_trainer(
 ) -> Trainer:
     """Build a HF ``Trainer`` for causal LM with optional eval / early stopping."""
     has_eval = has_eval_examples(eval_dataset)
+    # Materialized epoch runs: derive log/eval/save from dataset length so we
+    # hit ~5 evals per epoch (including epoch end). Streamed / step-capped runs
+    # already carry an explicit cadence from the recipe.
+    if config.uses_epochs():
+        try:
+            num_examples = len(train_dataset)
+        except TypeError:
+            num_examples = 0
+        if num_examples > 0:
+            config = apply_epoch_cadence(config, num_train_examples=num_examples)
     args = build_training_arguments(config, has_eval=has_eval)
     return Trainer(
         model=model,

@@ -20,7 +20,7 @@ Model training configurations and recipes are `experiments`.
 - Each module supports: `--flight-check`, `--train`, `--spot-check`
 - Subset experiments materialize a small prefix (~20k train + 1k eval; 3 epochs)
 - Non-subset experiments stream the corpus and run for max steps
-- Log and eval steps are dynamically configured as a convenience
+- Log and eval steps are dynamically configured as a convenience (subsets: ~5 evals per epoch, including epoch end)
 
 
 ## Accelerator profiles (batch + run names)

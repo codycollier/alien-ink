@@ -17,6 +17,9 @@ from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 from alien_ink.hf.model import Gpt2ArchConfig  # noqa: E402
 from alien_ink.hf.trainer import (  # noqa: E402
     CausalLmTrainerConfig,
+    apply_epoch_cadence,
+    epoch_cadence_steps,
+    optimizer_steps_per_epoch,
     reporting_disabled,
     tokens_per_optimizer_step,
 )
@@ -108,9 +111,76 @@ def test_build_training_arguments_epoch_strategy(monkeypatch, tmp_path: Path):
         max_steps=-1,
         num_train_epochs=3,
         logging_steps=10,
+        eval_steps=20,
+        save_steps=100,
     )
     args = trainer_mod.build_training_arguments(cfg, has_eval=True)
     assert args.max_steps == -1
     assert args.num_train_epochs == 3
-    assert args.eval_strategy == "epoch"
-    assert args.save_strategy == "epoch"
+    # Epoch runs use step cadence (applied earlier) so mid-epoch evals work.
+    assert args.eval_strategy == "steps"
+    assert args.save_strategy == "steps"
+    assert args.eval_steps == 20
+    assert args.save_steps == 100
+
+
+def test_optimizer_steps_per_epoch_matches_hf_ceil_math():
+    # 100 examples, batch 8, world 1 → 13 dataloader batches; accum 4 → 4 steps.
+    assert (
+        optimizer_steps_per_epoch(
+            100,
+            per_device_train_batch_size=8,
+            gradient_accumulation_steps=4,
+            world_size=1,
+        )
+        == 4
+    )
+    # Exact division: 128 / (8*1) = 16 batches; /4 accum = 4 steps.
+    assert (
+        optimizer_steps_per_epoch(
+            128,
+            per_device_train_batch_size=8,
+            gradient_accumulation_steps=4,
+            world_size=1,
+        )
+        == 4
+    )
+
+
+def test_epoch_cadence_steps_five_evals_including_epoch_end():
+    # 100 steps → eval every 20 → ticks at 20,40,60,80,100 (epoch end).
+    assert epoch_cadence_steps(100) == {
+        "logging_steps": 1,
+        "eval_steps": 20,
+        "save_steps": 100,
+    }
+    # Non-divisible: ~5 step evals, save ≈ once/epoch; epoch-end callback covers the remainder.
+    assert epoch_cadence_steps(103) == {
+        "logging_steps": 1,
+        "eval_steps": 20,
+        "save_steps": 100,
+    }
+    assert epoch_cadence_steps(7) == {
+        "logging_steps": 1,
+        "eval_steps": 1,
+        "save_steps": 5,
+    }
+
+
+def test_apply_epoch_cadence_updates_config(tmp_path: Path):
+    cfg = CausalLmTrainerConfig(
+        output_dir=tmp_path / "out",
+        max_steps=-1,
+        num_train_epochs=3,
+        per_device_train_batch_size=2,
+        gradient_accumulation_steps=16,
+        logging_steps=10,
+    )
+    # 640 examples / (2*16) = 20 steps/epoch → 5 evals of 4 steps.
+    out = apply_epoch_cadence(cfg, num_train_examples=640, world_size=1)
+    assert out.eval_steps == 4
+    assert out.save_steps == 20
+    assert out.logging_steps == 1
+    # Step-capped configs are left alone.
+    stepped = CausalLmTrainerConfig(output_dir=tmp_path / "out", max_steps=1_000)
+    assert apply_epoch_cadence(stepped, num_train_examples=640) is stepped
