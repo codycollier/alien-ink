@@ -1,9 +1,5 @@
 ## Running Experiments - General
 
-Experiment entrypoints live under `alien_ink/exp/`. Each module supports a short
-**flight check** (smoke test) and a **full training** run, plus an optional
-spot-check of the newest checkpoint.
-
 | Experiment | Module |
 |---|---|
 | WikiText-103 | `alien_ink.exp.gpt2_pretrain_wikitext` |
@@ -13,19 +9,15 @@ spot-check of the newest checkpoint.
 | C4 (English) | `alien_ink.exp.gpt2_pretrain_c4` |
 | C4 English (20k subset) | `alien_ink.exp.gpt2_pretrain_c4_subset` |
 
-Subset experiments materialize a small prefix (~20k train + 1k eval) instead of
-streaming the full corpus, and train for 3 epochs (`max_steps=-1`) with
-eval/save once per epoch.
 
-Mode flags (`--train`, `--flight-check`, `--spot-check`) are mutually exclusive.
+w- Experiment entrypoints live under `alien_ink/exp/`
+- Each module supports:  `--flight-check`, `--train`, `--spot-check`
+- Subset experiments materialize a small prefix (~20k train + 1k eval; 3 epochs)
+- Non-subset experiments sream the corpus and run for max steps
+- Log and eval steps are dynamically configured as a convenience
 
-Credentials and artifacts resolve relative to `cwd` at call time (`.env`,
-`output/`). Optional `.env` keys are listed in `.env.example`.
 
 ### Accelerator profiles (batch + run names)
-
-Defaults auto-pick from the machine. Run names / `output_dir` get a suffix:
-`-gpu`, `-tpu`, or `-cpu` (for example `gpt2-pretrain-wpe-subset-gpu`).
 
 | Environment | Assumed hardware | Train batch / accum | Run suffix |
 |---|---|---|---|
@@ -33,11 +25,9 @@ Defaults auto-pick from the machine. Run names / `output_dir` get a suffix:
 | Colab GPU / L4 / ≥20 GB | Colab **G4** (NVIDIA L4 ~24 GB) | `32` / `1` | `-gpu` |
 | XLA/TPU | Colab **TPU v6e-1** (1×32 GB HBM) | `64` / `1` | `-tpu` |
 
-Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use
-`{run_name}-flight-check-{gpu|tpu}`.
 
-Override batch/accum anytime via kwargs or CLI
-(`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
+- Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use `{run_name}-flight-check-{gpu|tpu}`.
+- Override batch/accum anytime via kwargs or CLI (`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
 
 
 ---
@@ -49,17 +39,14 @@ Ensure secrets from `.env` are set as notebook secrets (key icon to left).
 
 
 
-### Runtime: GPU (default: G4)
+### Quick Reference - Runtime: GPU (default: G4)
 
 - **GPU runtime** → Colab **G4** (L4)
 
-#### Setup
-
 ```python
+# install, setup, verification
 %pip install -q -U "alien-ink[hf]"
-```
 
-```python
 import alien_ink
 from alien_ink.hf.hardware import resolve_accelerator_profile
 
@@ -67,9 +54,8 @@ print(alien_ink.stars)
 print(resolve_accelerator_profile())  # label=colab-g4, batch=32, accum=1
 ```
 
-#### Run
-
-```
+```python
+# run an experiment
 from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
     train,
     train_flight_check,
@@ -85,7 +71,7 @@ train(
 ```
 
 
-### Runtime: TPU (default: v6e1)
+### Quick Reference - Runtime: TPU (default: v6e1)
 
 - **TPU runtime** → Colab **TPU v6e-1** (single chip)
 
@@ -96,11 +82,10 @@ train(
 - install alien-ink deps without replacing `torch` / `torch_xla`:
 
 ```python
+# install, setup, and verification
 %pip install -q python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
 %pip install -q --no-deps -U "alien-ink"
-```
 
-```python
 import torch
 import torch_xla
 import torch_xla.runtime as xr
@@ -114,10 +99,8 @@ print(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
 # Expect `resolve_device()` → `xla` and profile `tpu_num_processes=1`.
 ```
 
-
-#### Run
-
 ```python
+# run an experiment
 from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
     train,
     train_flight_check,
@@ -131,7 +114,6 @@ train(
     wandb_project="ink-explore",
     wandb_name="gpt2-pretrain-wpe-subset-nb-tpu",
 )
-
 ```
 
 On a TPU notebook, `train` / `train_flight_check` auto-wrap with Accelerate's
@@ -153,7 +135,7 @@ XLA notes (applied automatically):
 
 Use this path when you have a machine with a local GPU and want to drive
 experiments from the shell (or a background `bin/` script). Defaults stay
-conservative for an ~8 GB RTX.
+conservative for an ~8 GB RTX 3070.
 
 
 ### Setup
