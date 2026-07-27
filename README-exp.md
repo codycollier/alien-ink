@@ -1,3 +1,7 @@
+
+# Overview
+
+
 ## Running Experiments - General
 
 | Experiment | Module |
@@ -17,7 +21,7 @@
 - Log and eval steps are dynamically configured as a convenience
 
 
-### Accelerator profiles (batch + run names)
+## Accelerator profiles (batch + run names)
 
 | Environment | Assumed hardware | Train batch / accum | Run suffix |
 |---|---|---|---|
@@ -32,14 +36,12 @@
 
 ---
 
-
-## Running in a notebook (Google Colab)
-
-Set notebook secrets (key icon) to match `.env`: `HF_TOKEN`, `WANDB_API_KEY`.
+# Quick References
 
 
-### Quick Reference - Runtime: GPU (default: G4)
+## Google Colab - Runtime: GPU (default: G4)
 
+- Set notebook secrets (key icon) to match `.env`: `HF_TOKEN`, `WANDB_API_KEY`.
 - **Runtime** → Colab **G4** (NVIDIA L4)
 - Keep Colab's CUDA `torch`; install HF deps + `alien-ink` with `--no-deps`
 
@@ -71,13 +73,14 @@ train(
     use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
-    wandb_name="gpt2-pretrain-wpe-subset-nb",  # → …-nb-gpu
+    wandb_name="gpt2-pretrain-wpe-subset-nb-gpu",
 )
 ```
 
 
-### Quick Reference - Runtime: TPU (default: v6e1)
+## Google Colab - Runtime: TPU (default: v6e1)
 
+- Set notebook secrets (key icon) to match `.env`: `HF_TOKEN`, `WANDB_API_KEY`.
 - **Runtime** → Colab **TPU v6e-1** (single chip)
 - Keep the runtime's PyTorch/XLA stack; do not replace `torch` / `torch_xla`
 
@@ -110,7 +113,7 @@ train(
     use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
-    wandb_name="gpt2-pretrain-wpe-subset-nb",  # → …-nb-tpu
+    wandb_name="gpt2-pretrain-wpe-subset-nb-tpu",
 )
 ```
 
@@ -125,8 +128,6 @@ XLA notes (applied automatically):
 - Optimizer forced to `adamw_torch` (fused AdamW rejects XLA)
 - Prefer large `per_device_train_batch_size` and `gradient_accumulation_steps=1`
 
-
----
 
 
 ## Running locally with a GPU (mist)
@@ -201,7 +202,7 @@ Background pretrain on Mist (local RTX 3070) with a timestamped log. Edit
 
 ---
 
-## Various customization options and dev details
+# Various customization options and dev details
 
 
 ### Weights & Biases (entity / project / run name)
