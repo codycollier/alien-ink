@@ -150,10 +150,13 @@ class Gpt2PretrainExperiment:
         profile = profile or resolve_accelerator_profile()
         run_name = self.resolved_run_name(profile=profile, wandb_name=wandb_name)
         detail(
-            f"accelerator profile: {profile.label} "
-            f"(batch={profile.per_device_train_batch_size}, "
-            f"accum={profile.gradient_accumulation_steps}, "
-            f"run_name={run_name})",
+            f"accelerator profile: {profile.label} ({profile.hardware}) "
+            f"batch={profile.per_device_train_batch_size} "
+            f"accum={profile.gradient_accumulation_steps} "
+            f"eff={profile.effective_batch_size} "
+            f"mem×{profile.memory_multiple:g} "
+            f"compute×{profile.vs_rtx_3070:g} "
+            f"run_name={run_name}",
             logger=log,
         )
         return Gpt2PretrainConfig(

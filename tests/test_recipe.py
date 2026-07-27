@@ -117,7 +117,7 @@ def test_base_config_colab_g4_batch(monkeypatch):
         module_description="d",
     )
     cfg = exp.base_config()
-    assert cfg.trainer.per_device_train_batch_size == 32
+    assert cfg.trainer.per_device_train_batch_size == 64
     assert cfg.trainer.gradient_accumulation_steps == 1
     assert cfg.trainer.run_name == "run-a-gpu"
 

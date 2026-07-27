@@ -217,13 +217,17 @@ _PEAK_TFLOPS: dict[str, dict[str, float]] = {
     "NVIDIA A100-SXM4-80GB": {"fp16": 312.0, "bf16": 312.0, "fp32": 19.5},
     "NVIDIA A100 40GB PCIe": {"fp16": 312.0, "bf16": 312.0, "fp32": 19.5},
     "NVIDIA A100 80GB PCIe": {"fp16": 312.0, "bf16": 312.0, "fp32": 19.5},
-    "NVIDIA L4": {"fp16": 120.0, "bf16": 120.0, "fp32": 30.3},
+    "NVIDIA L4": {"fp16": 121.0, "bf16": 121.0, "fp32": 30.3},
     "NVIDIA L40S": {"fp16": 362.0, "bf16": 362.0, "fp32": 91.6},
+    # Colab G4 = RTX PRO 6000 Blackwell Server Edition (~96 GB).
+    # Table peak 500 FP16; Colab marketing also cites ~960 BF16.
+    "NVIDIA RTX PRO 6000 Blackwell": {"fp16": 500.0, "bf16": 960.0, "fp32": 0.0},
+    "RTX PRO 6000": {"fp16": 500.0, "bf16": 960.0, "fp32": 0.0},
     "NVIDIA H100 PCIe": {"fp16": 756.5, "bf16": 756.5, "fp32": 51.0},
     "NVIDIA H100 80GB HBM3": {"fp16": 989.0, "bf16": 989.0, "fp32": 67.0},
     "Tesla T4": {"fp16": 65.0, "bf16": 0.0, "fp32": 8.1},
     "Tesla V100-SXM2-16GB": {"fp16": 125.0, "bf16": 0.0, "fp32": 15.7},
-    # Cloud TPU (per-chip peaks; Colab TPU notebook assumed v6e-1)
+    # Cloud TPU (per-chip peaks; Colab TPU notebook assumed v6e-1 Trillium)
     "TPU v6e": {"fp16": 918.0, "bf16": 918.0, "fp32": 0.0},
     "TPU v6e-1": {"fp16": 918.0, "bf16": 918.0, "fp32": 0.0},
 }
@@ -407,7 +411,9 @@ def introspect(
             (
                 "profile",
                 f"{profile.label}  batch: {profile.per_device_train_batch_size}  "
-                f"accum: {profile.gradient_accumulation_steps}",
+                f"accum: {profile.gradient_accumulation_steps}  "
+                f"mem×{profile.memory_multiple:g}  "
+                f"compute×{profile.vs_rtx_3070:g}",
             )
         )
     except Exception:

@@ -23,15 +23,28 @@ Model training configurations and recipes are `experiments`.
 - Log and eval steps are dynamically configured as a convenience (subsets: ~5 evals per epoch, including epoch end)
 
 
-## Accelerator profiles (batch + run names)
+## Training machine profiles (batch + run names)
 
-| Environment | Assumed hardware | Train batch / accum | Run suffix |
-|---|---|---|---|
-| Local CUDA (≤12 GB) | RTX (e.g. 3070 8 GB) | `2` / `16` | `-gpu` |
-| Colab GPU / L4 / ≥20 GB | Colab **G4** (NVIDIA L4 ~24 GB) | `32` / `1` | `-gpu` |
-| XLA/TPU | Colab **TPU v6e-1** (1×32 GB HBM) | `32` / `1` | `-tpu` |
+Recipes pick an `AcceleratorProfile` from `alien_ink.hf.hardware` based on the
+live device. Multiples are relative to the Mist **RTX 3070** baseline
+(8 GB, 40.6 TFLOPS FP16). Cloud profiles prefer large microbatches and
+`gradient_accumulation_steps=1` so HBM/VRAM stays busy.
 
+| Profile | Hardware | Mem | Peak | vs 3070 | Mem× | Train batch / accum | Eff. batch | Suffix |
+|---|---|---|---|---|---|---|---|---|
+| `local-rtx` | RTX 3070 (Mist) | 8 GB | 40.6 TFLOPS FP16 | 1.0× | 1× | `2` / `16` | 32 | `-gpu` |
+| `colab-g4` | **G4** RTX PRO 6000 Blackwell | 96 GB | 500 TFLOPS FP16 | 12.3× | 12× | `64` / `1` | 64 | `-gpu` |
+| `colab-a100-40gb` | **A100** 40 GB (Ampere) | 40 GB | 312 TFLOPS FP16 | 7.7× | 5× | `32` / `1` | 32 | `-gpu` |
+| `colab-tpu-v6e1` | **TPU v6e-1** Trillium (1-chip) | 32 GB | 918 TFLOPS BF16 | 22.6× | 4× | `32` / `1` | 32 | `-tpu` |
+| `colab-l4` | L4 / other ≥20 GB mid-tier | 24 GB | 121 TFLOPS FP16 | 3.0× | 3× | `32` / `1` | 32 | `-gpu` |
 
+Scaling notes:
+
+- **Local / Mist** keeps the proven small-microbatch + accum recipe (fits ~8 GB).
+- **G4** microbatch is raised with the 12× memory headroom (64 vs local’s effective 32). Drop to `32` if you want local-parity tokens/step.
+- **A100 40 GB** uses batch 32 (40 GB is under the ~51G needed for batch 64 @ 1024).
+- **TPU v6e-1** stays at 32: batch 64 OOMs GPT-2 @ `block_size=1024` (~51G HBM).
+- **L4** is auto-selected for mid-VRAM GPUs so they never inherit the G4 96 GB recipe.
 - Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use `{run_name}-flight-check-{gpu|tpu}`.
 - Override batch/accum anytime via kwargs or CLI (`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
 
@@ -45,7 +58,7 @@ Model training configurations and recipes are `experiments`.
 ## Google Colab - Runtime: GPU (default: G4)
 
 - Set notebook secrets (key icon) to match `.env`: `HF_TOKEN`, `WANDB_API_KEY`.
-- **Runtime** → Colab **G4** (NVIDIA L4)
+- **Runtime** → Colab **G4** (RTX PRO 6000 Blackwell, 96 GB). A100 40 GB and L4 map to their own profiles.
 - Keep Colab's CUDA `torch`; install HF deps + `alien-ink` with `--no-deps`
 
 ```python
@@ -73,10 +86,10 @@ train(
 ```
 
 
-## Google Colab - Runtime: TPU (default: v6e1)
+## Google Colab - Runtime: TPU (default: v6e-1)
 
 - Set notebook secrets (key icon) to match `.env`: `HF_TOKEN`, `WANDB_API_KEY`.
-- **Runtime** → Colab **TPU v6e-1** (single chip)
+- **Runtime** → Colab **TPU v6e-1** Trillium (single chip, 32 GB HBM)
 - Keep the runtime's PyTorch/XLA stack; do not replace `torch` / `torch_xla`
 
 ```python
@@ -116,8 +129,8 @@ XLA notes (applied automatically):
 ## Mist - Running locally (RTX 3070)
 
 Use this path when you have a machine with a local GPU and want to drive
-experiments from the shell (or a background `bin/` script). Defaults stay
-conservative for an ~8 GB RTX 3070.
+experiments from the shell (or a background `bin/` script). Resolves to the
+`local-rtx` profile — conservative for an ~8 GB RTX 3070 (`batch=2`, `accum=16`).
 
 
 ```bash

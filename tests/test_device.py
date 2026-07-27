@@ -86,6 +86,7 @@ def test_resolve_device_prefers_xla_over_mps(monkeypatch):
 def test_lookup_peak_tflops_known_and_unknown():
     assert device_mod.lookup_peak_tflops("NVIDIA GeForce RTX 3070", "bf16") == 20.31
     assert device_mod.lookup_peak_tflops("TPU v6e-1", "bf16") == 918.0
+    assert device_mod.lookup_peak_tflops("NVIDIA RTX PRO 6000 Blackwell", "fp16") == 500.0
     assert device_mod.lookup_peak_tflops("Totally Fake GPU", "bf16") is None
     assert device_mod.lookup_peak_tflops(None, "bf16") is None
 
@@ -138,7 +139,10 @@ def test_introspect_cpu(monkeypatch):
     assert device_mod._kv("cuda", False) in text
     assert device_mod._kv("device", "cpu") in text
     assert device_mod._kv("precision", "fp32") in text
-    assert device_mod._kv("profile", "cpu  batch: 1  accum: 8") in text
+    assert (
+        device_mod._kv("profile", "cpu  batch: 1  accum: 8  mem×0  compute×0")
+        in text
+    )
 
 
 def test_introspect_cuda(monkeypatch):
@@ -149,29 +153,35 @@ def test_introspect_cuda(monkeypatch):
         precision="bf16",
         world_size=1,
         gpu_count=1,
-        gpu_name="NVIDIA L4",
-        gpu_memory_total_gb=22.5,
+        gpu_name="NVIDIA RTX PRO 6000 Blackwell",
+        gpu_memory_total_gb=95.5,
         cuda_available=True,
-        cuda_version="12.4",
+        cuda_version="12.8",
         cudnn_version="90100",
-        torch_version="2.6.0+cu124",
+        torch_version="2.6.0+cu128",
         platform="Linux",
         python_version="3.11.0",
-        peak_tflops=120.0,
+        peak_tflops=500.0,
         xla_available=False,
     )
     monkeypatch.setattr(device_mod, "collect_accelerator_info", lambda **_: fake)
     monkeypatch.setattr(hw, "resolve_accelerator_profile", lambda: hw.COLAB_G4)
 
     text = device_mod.introspect()
-    assert device_mod._kv("torch", "2.6.0+cu124") in text
-    assert device_mod._kv("cuda", "True  (12.4, cudnn 90100)") in text
-    assert device_mod._kv("gpu", "NVIDIA L4 (22.5 GB)") in text
+    assert device_mod._kv("torch", "2.6.0+cu128") in text
+    assert device_mod._kv("cuda", "True  (12.8, cudnn 90100)") in text
+    assert device_mod._kv("gpu", "NVIDIA RTX PRO 6000 Blackwell (95.5 GB)") in text
     assert device_mod._kv("device", "cuda") in text
     assert device_mod._kv("precision", "bf16") in text
     assert device_mod._kv("world_size", 1) in text
-    assert device_mod._kv("peak_tflops", "120") in text
-    assert device_mod._kv("profile", "colab-g4  batch: 32  accum: 1") in text
+    assert device_mod._kv("peak_tflops", "500") in text
+    assert (
+        device_mod._kv(
+            "profile",
+            "colab-g4  batch: 64  accum: 1  mem×12  compute×12.3",
+        )
+        in text
+    )
     assert "using:" not in text
     assert "device_type:" not in text
 
@@ -211,6 +221,12 @@ def test_introspect_xla(monkeypatch):
     assert device_mod._kv("device", "xla") in text
     assert device_mod._kv("precision", "bf16") in text
     assert device_mod._kv("peak_tflops", "918") in text
-    assert device_mod._kv("profile", "colab-tpu-v6e1  batch: 32  accum: 1") in text
+    assert (
+        device_mod._kv(
+            "profile",
+            "colab-tpu-v6e1  batch: 32  accum: 1  mem×4  compute×22.6",
+        )
+        in text
+    )
     assert text.startswith(80 * "-")
     assert text.endswith(80 * "-")
