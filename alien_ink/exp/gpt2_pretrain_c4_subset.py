@@ -11,20 +11,15 @@ Run from an installed environment (CLI)::
   python -m alien_ink.exp.gpt2_pretrain_c4_subset --flight-check
   python -m alien_ink.exp.gpt2_pretrain_c4_subset --spot-check
 
-Override W&B project / run name at runtime::
+Compose ablations without new modules::
 
-  python -m alien_ink.exp.gpt2_pretrain_c4_subset --train \\
-    --wandb-project my-proj --wandb-name my-run
-
-Or from a notebook / REPL::
-
-  from alien_ink.exp.gpt2_pretrain_c4_subset import train, train_flight_check
-  train_flight_check(wandb_project="my-proj", wandb_name="flight")
+  from alien_ink.exp.gpt2_pretrain_c4_subset import EXPERIMENT
+  EXPERIMENT.with_data(block_size=512).variant(run_name="c4-sub-b512").train()
 """
 
 from __future__ import annotations
 
-from alien_ink.exp.recipe import Gpt2PretrainExperiment, run_main
+from alien_ink.exp.recipe import Gpt2PretrainExperiment, module_api, run_main
 from alien_ink.hf.ds import c4_english_subset
 
 EXPERIMENT = Gpt2PretrainExperiment(
@@ -41,12 +36,9 @@ EXPERIMENT = Gpt2PretrainExperiment(
     warmup_steps=200,
 )
 
-base_config = EXPERIMENT.base_config
-train = EXPERIMENT.train
-train_flight_check = EXPERIMENT.train_flight_check
-spot_check = EXPERIMENT.spot_check
-build_parser = EXPERIMENT.build_parser
-main = EXPERIMENT.main
+base_config, train, train_flight_check, spot_check, build_parser, main = module_api(
+    EXPERIMENT
+)
 
 
 if __name__ == "__main__":

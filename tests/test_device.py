@@ -84,7 +84,8 @@ def test_resolve_device_prefers_xla_over_mps(monkeypatch):
 
 
 def test_lookup_peak_tflops_known_and_unknown():
-    assert device_mod.lookup_peak_tflops("NVIDIA GeForce RTX 3070", "bf16") == 20.31
+    assert device_mod.lookup_peak_tflops("NVIDIA GeForce RTX 3070", "bf16") == 40.6
+    assert device_mod.lookup_peak_tflops("NVIDIA GeForce RTX 3070", "fp32") == 20.31
     assert device_mod.lookup_peak_tflops("TPU v6e-1", "bf16") == 918.0
     assert device_mod.lookup_peak_tflops("NVIDIA RTX PRO 6000 Blackwell", "fp16") == 500.0
     assert device_mod.lookup_peak_tflops("Totally Fake GPU", "bf16") is None

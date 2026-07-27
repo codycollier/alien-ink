@@ -21,6 +21,20 @@ Model training configurations and recipes are `experiments`.
 - Subset experiments materialize a small prefix (~20k train + 1k eval; 3 epochs)
 - Non-subset experiments stream the corpus and run for max steps
 - Log and eval steps are dynamically configured as a convenience (subsets: ~5 evals per epoch, including epoch end)
+- Ablations compose from a base `EXPERIMENT` — do not clone modules for LR / depth / block_size grids
+
+```python
+from alien_ink.exp.gpt2_pretrain_wikitext_subset import EXPERIMENT
+
+# Hundreds of combinations = product of variants, not new files
+ablations = [
+    EXPERIMENT.variant(run_name="wt-sub-lr3e4", learning_rate=3e-4),
+    EXPERIMENT.with_arch(n_layer=6).variant(run_name="wt-sub-l6"),
+    EXPERIMENT.with_data(block_size=512).with_trainer_knobs(weight_decay=0.05),
+]
+for exp in ablations:
+    exp.train(use_wandb=True)
+```
 
 
 ## Training machine profiles (batch + run names)

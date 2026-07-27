@@ -14,24 +14,15 @@ Run from an installed environment (CLI)::
   python -m alien_ink.exp.gpt2_pretrain_c4 --flight-check
   python -m alien_ink.exp.gpt2_pretrain_c4 --spot-check
 
-Override W&B project / run name at runtime::
+Compose ablations without new modules::
 
-  python -m alien_ink.exp.gpt2_pretrain_c4 --train \\
-    --wandb-project my-proj --wandb-name my-run
-
-Or from a notebook / REPL::
-
-  from alien_ink.exp.gpt2_pretrain_c4 import train, train_flight_check
-  train_flight_check(wandb_project="my-proj", wandb_name="flight")
-
-Artifacts and ``.env`` resolve relative to the process working directory at call
-time. Set W&B project / run name via ``--wandb-project`` / ``--wandb-name``
-(or kwargs). Use ``--no-wandb`` to skip Weights & Biases.
+  from alien_ink.exp.gpt2_pretrain_c4 import EXPERIMENT
+  EXPERIMENT.with_arch(n_layer=6).variant(run_name="c4-l6").train()
 """
 
 from __future__ import annotations
 
-from alien_ink.exp.recipe import Gpt2PretrainExperiment, run_main
+from alien_ink.exp.recipe import Gpt2PretrainExperiment, module_api, run_main
 from alien_ink.hf.ds import c4_english
 
 EXPERIMENT = Gpt2PretrainExperiment(
@@ -44,12 +35,9 @@ EXPERIMENT = Gpt2PretrainExperiment(
     ),
 )
 
-base_config = EXPERIMENT.base_config
-train = EXPERIMENT.train
-train_flight_check = EXPERIMENT.train_flight_check
-spot_check = EXPERIMENT.spot_check
-build_parser = EXPERIMENT.build_parser
-main = EXPERIMENT.main
+base_config, train, train_flight_check, spot_check, build_parser, main = module_api(
+    EXPERIMENT
+)
 
 
 if __name__ == "__main__":

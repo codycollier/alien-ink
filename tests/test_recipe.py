@@ -380,3 +380,48 @@ def test_parser_includes_new_flags():
     assert args.max_steps == -1
     assert args.num_train_epochs == 3
     assert args.resume_from_checkpoint is True
+
+
+def test_variant_composes_arch_data_trainer(monkeypatch):
+    monkeypatch.setattr(
+        "alien_ink.exp.recipe.resolve_accelerator_profile",
+        lambda: LOCAL_RTX,
+    )
+    base = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
+    )
+    variant = (
+        base.with_arch(n_layer=6)
+        .with_data(block_size=512)
+        .with_trainer_knobs(weight_decay=0.05)
+        .variant(run_name="run-a-l6", learning_rate=3e-4)
+    )
+    assert variant is not base
+    assert base.arch.n_layer == 12
+    assert base.learning_rate == 6e-4
+    cfg = variant.base_config()
+    assert cfg.arch.n_layer == 6
+    assert cfg.data.block_size == 512
+    assert cfg.trainer.weight_decay == 0.05
+    assert cfg.trainer.learning_rate == 3e-4
+    assert cfg.trainer.run_name == "run-a-l6-gpu"
+
+
+def test_base_config_uses_recipe_learning_rate(monkeypatch):
+    monkeypatch.setattr(
+        "alien_ink.exp.recipe.resolve_accelerator_profile",
+        lambda: LOCAL_RTX,
+    )
+    exp = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
+        learning_rate=1e-3,
+    )
+    assert exp.base_config().trainer.learning_rate == 1e-3

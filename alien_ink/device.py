@@ -201,11 +201,12 @@ def precision_label(*, use_fp16: bool, use_bf16: bool) -> str:
     return "fp32"
 
 
-# Approximate dense Tensor-core peaks for common cards (TFLOPS).
-# Used only for MFU; throughput / FLOPs totals do not depend on this table.
+# Approximate peak TFLOPS for MFU (throughput / FLOPs totals do not use this).
+# GPU FP16/BF16 entries are dense Tensor-core peaks (no sparsity). Aligns with
+# alien_ink.hf.hardware comparison baseline (RTX 3070 = 40.6 FP16).
 _PEAK_TFLOPS: dict[str, dict[str, float]] = {
     # Consumer
-    "NVIDIA GeForce RTX 3070": {"fp16": 20.31, "bf16": 20.31, "fp32": 20.31},
+    "NVIDIA GeForce RTX 3070": {"fp16": 40.6, "bf16": 40.6, "fp32": 20.31},
     "NVIDIA GeForce RTX 3080": {"fp16": 29.77, "bf16": 29.77, "fp32": 29.77},
     "NVIDIA GeForce RTX 3090": {"fp16": 35.58, "bf16": 35.58, "fp32": 35.58},
     "NVIDIA GeForce RTX 4070": {"fp16": 29.15, "bf16": 29.15, "fp32": 29.15},
