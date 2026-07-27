@@ -179,12 +179,19 @@ def log_pretrain_banner(
     if accel.device == "xla":
         detail(f"XLA/TPU cores: {accel.gpu_count}", logger=log)
     detail(f"torch {accel.torch_version}", logger=log)
-    step(
-        f"Training steps: {config.trainer.max_steps:,} "
-        f"(~{tps:,} tokens/step, "
-        f"~{config.trainer.max_steps * tps:,} tokens total)",
-        logger=log,
-    )
+    if config.trainer.uses_epochs():
+        step(
+            f"Training epochs: {config.trainer.num_train_epochs:g} "
+            f"(~{tps:,} tokens/step)",
+            logger=log,
+        )
+    else:
+        step(
+            f"Training steps: {config.trainer.max_steps:,} "
+            f"(~{tps:,} tokens/step, "
+            f"~{config.trainer.max_steps * tps:,} tokens total)",
+            logger=log,
+        )
     if config.trainer.gradient_checkpointing:
         step("Gradient checkpointing enabled", logger=log)
     return accel, tps

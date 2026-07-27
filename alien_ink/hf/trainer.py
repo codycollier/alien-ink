@@ -52,10 +52,16 @@ __all__ = [
 
 @dataclass(frozen=True)
 class CausalLmTrainerConfig:
-    """Hyperparameters and bookkeeping for a causal-LM ``Trainer`` run."""
+    """Hyperparameters and bookkeeping for a causal-LM ``Trainer`` run.
+
+    Length is either step-capped (``max_steps >= 1``) or epoch-based
+    (``max_steps == -1`` and ``num_train_epochs > 0``). Positive ``max_steps``
+    wins over epochs, matching Hugging Face ``TrainingArguments``.
+    """
 
     output_dir: Path
     max_steps: int = 50_000
+    num_train_epochs: float = 3.0
     per_device_train_batch_size: int = 2
     per_device_eval_batch_size: int = 2
     gradient_accumulation_steps: int = 16
@@ -80,9 +86,20 @@ class CausalLmTrainerConfig:
     report_to: str = "wandb"
     resume_from_checkpoint: str | Path | bool | None = None
 
+    def uses_epochs(self) -> bool:
+        """True when length is controlled by ``num_train_epochs``."""
+        return self.max_steps < 0
+
     def validate(self) -> None:
-        if self.max_steps < 1:
-            raise ValueError(f"max_steps must be >= 1, got {self.max_steps}")
+        if self.max_steps == 0 or self.max_steps < -1:
+            raise ValueError(
+                f"max_steps must be >= 1 or -1 (epoch mode), got {self.max_steps}"
+            )
+        if self.uses_epochs() and self.num_train_epochs <= 0:
+            raise ValueError(
+                "num_train_epochs must be > 0 when max_steps=-1, "
+                f"got {self.num_train_epochs}"
+            )
         if self.per_device_train_batch_size < 1:
             raise ValueError(
                 "per_device_train_batch_size must be >= 1, "
@@ -172,9 +189,18 @@ def build_training_arguments(
         optim_kwargs["optim"] = optim
         detail(f"optimizer: {optim} (fused AdamW unsupported on XLA)", logger=log)
 
+    by_epoch = config.uses_epochs()
+    if not has_eval:
+        eval_strategy = "no"
+    elif by_epoch:
+        eval_strategy = "epoch"
+    else:
+        eval_strategy = "steps"
+
     return TrainingArguments(
         output_dir=str(config.output_dir),
         max_steps=config.max_steps,
+        num_train_epochs=config.num_train_epochs,
         per_device_train_batch_size=config.per_device_train_batch_size,
         per_device_eval_batch_size=config.per_device_eval_batch_size,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
@@ -187,9 +213,9 @@ def build_training_arguments(
         adam_beta1=config.adam_beta1,
         adam_beta2=config.adam_beta2,
         logging_steps=config.logging_steps,
-        eval_strategy="steps" if has_eval else "no",
+        eval_strategy=eval_strategy,
         eval_steps=config.eval_steps,
-        save_strategy="steps",
+        save_strategy="epoch" if by_epoch else "steps",
         save_steps=config.save_steps,
         save_total_limit=config.save_total_limit,
         load_best_model_at_end=has_eval,
@@ -343,12 +369,18 @@ def train_and_save(
 
     summary: RunSummary | None = None
     if model_size is not None and accelerator is not None:
+        resolved_max = (
+            max_steps if max_steps is not None else int(trainer.args.max_steps)
+        )
+        # Epoch mode leaves args.max_steps at -1; prefer the Trainer-computed plan.
+        if resolved_max < 0:
+            resolved_max = int(getattr(trainer.state, "max_steps", 0) or 0)
         summary = summarize_training(
             trainer=trainer,
             run_name=run_name,
             run_label=run_label,
             status=status,
-            max_steps=max_steps if max_steps is not None else int(trainer.args.max_steps),
+            max_steps=resolved_max,
             tokens_per_step=tokens_per_step,
             model_size=model_size,
             accelerator=accelerator,

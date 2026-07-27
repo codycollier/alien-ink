@@ -14,7 +14,8 @@ spot-check of the newest checkpoint.
 | C4 English (20k subset) | `alien_ink.exp.gpt2_pretrain_c4_subset` |
 
 Subset experiments materialize a small prefix (~20k train + 1k eval) instead of
-streaming the full corpus, and use shorter default training (`max_steps=2000`).
+streaming the full corpus, and train for 3 epochs (`max_steps=-1`) with
+eval/save once per epoch.
 
 Mode flags (`--train`, `--flight-check`, `--spot-check`) are mutually exclusive.
 

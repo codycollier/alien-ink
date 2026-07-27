@@ -29,12 +29,14 @@ from alien_ink.log import detail, get_logger
 log = get_logger("exp.recipe")
 
 # Reference cadence for a full streamed run; shorter max_steps scale these down
-# so subsets keep roughly the same number of log / eval / checkpoint points.
+# so step-capped runs keep roughly the same number of log / eval / checkpoint points.
 _REF_MAX_STEPS = 50_000
 _REF_LOGGING_STEPS = 50
 _REF_EVAL_STEPS = 1_000
 _REF_SAVE_STEPS = 1_000
 _CADENCE_KEYS = frozenset({"logging_steps", "eval_steps", "save_steps"})
+# Epoch-based subset runs eval/save once per epoch; keep a modest log cadence.
+_EPOCH_LOGGING_STEPS = 10
 
 
 def scaled_trainer_steps(max_steps: int) -> dict[str, int]:
@@ -53,9 +55,32 @@ def scaled_trainer_steps(max_steps: int) -> dict[str, int]:
     }
 
 
+def trainer_length_kwargs(
+    *,
+    max_steps: int,
+    num_train_epochs: float,
+) -> dict[str, int | float]:
+    """Trainer length + cadence fields for step-capped or epoch-based runs."""
+    if max_steps < 0:
+        return {
+            "max_steps": -1,
+            "num_train_epochs": num_train_epochs,
+            "logging_steps": _EPOCH_LOGGING_STEPS,
+        }
+    return {
+        "max_steps": max_steps,
+        "num_train_epochs": num_train_epochs,
+        **scaled_trainer_steps(max_steps),
+    }
+
+
 @dataclass(frozen=True)
 class Gpt2PretrainExperiment:
-    """Corpus-specific labels + data factory; paths resolve from cwd at call time."""
+    """Corpus-specific labels + data factory; paths resolve from cwd at call time.
+
+    Use ``max_steps >= 1`` for streamed / step-capped runs, or ``max_steps=-1``
+    with ``num_train_epochs`` for finite materialized subsets.
+    """
 
     run_name: str
     title: str
@@ -63,6 +88,7 @@ class Gpt2PretrainExperiment:
     data_factory: Callable[..., PretrainDataConfig]
     module_description: str
     max_steps: int = 50_000
+    num_train_epochs: float = 3.0
     warmup_steps: int = 2_000
 
     def workdir(self) -> Path:
@@ -133,12 +159,14 @@ class Gpt2PretrainExperiment:
             data=self.data_factory(),
             trainer=CausalLmTrainerConfig(
                 output_dir=self.output_root() / run_name,
-                max_steps=self.max_steps,
                 learning_rate=6e-4,
                 warmup_steps=self.warmup_steps,
                 run_name=run_name,
                 **trainer_overrides_for_profile(profile),
-                **scaled_trainer_steps(self.max_steps),
+                **trainer_length_kwargs(
+                    max_steps=self.max_steps,
+                    num_train_epochs=self.num_train_epochs,
+                ),
             ),
         )
 
@@ -166,9 +194,9 @@ class Gpt2PretrainExperiment:
         resolved_name = cfg.trainer.run_name
         if trainer_overrides:
             cfg = with_trainer(cfg, **trainer_overrides)
-            # Keep log/eval/save density aligned when max_steps is overridden;
-            # leave any cadence fields the caller set explicitly alone.
-            if "max_steps" in trainer_overrides:
+            # Keep log/eval/save density aligned when max_steps is overridden
+            # into step mode; leave any cadence fields the caller set alone.
+            if "max_steps" in trainer_overrides and cfg.trainer.max_steps > 0:
                 auto = {
                     key: value
                     for key, value in scaled_trainer_steps(cfg.trainer.max_steps).items()

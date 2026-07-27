@@ -42,7 +42,14 @@ def add_train_override_args(parser: argparse.ArgumentParser) -> None:
         type=int,
         default=None,
         metavar="N",
-        help="Override trainer max_steps.",
+        help="Override trainer max_steps (-1 for epoch-based length).",
+    )
+    parser.add_argument(
+        "--num-train-epochs",
+        type=float,
+        default=None,
+        metavar="N",
+        help="Override trainer num_train_epochs (used when max_steps=-1).",
     )
     parser.add_argument(
         "--learning-rate",
@@ -93,6 +100,7 @@ def train_override_kwargs(args: argparse.Namespace) -> dict:
     overrides: dict = {}
     for name in (
         "max_steps",
+        "num_train_epochs",
         "learning_rate",
         "per_device_train_batch_size",
         "gradient_accumulation_steps",

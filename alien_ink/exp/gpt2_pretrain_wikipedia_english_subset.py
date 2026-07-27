@@ -40,7 +40,8 @@ EXPERIMENT = Gpt2PretrainExperiment(
         "Pretrain GPT-2 on a materialized English Wikipedia subset "
         "or spot-check a saved checkpoint."
     ),
-    max_steps=2_000,
+    max_steps=-1,
+    num_train_epochs=3,
     warmup_steps=200,
 )
 

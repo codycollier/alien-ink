@@ -77,3 +77,40 @@ def test_trainer_config_validate_learning_rate():
             output_dir=Path("output/x"),
             learning_rate=0,
         ).validate()
+
+
+def test_trainer_config_epoch_mode_validation():
+    CausalLmTrainerConfig(
+        output_dir=Path("output/x"),
+        max_steps=-1,
+        num_train_epochs=3,
+    ).validate()
+    with pytest.raises(ValueError, match="max_steps"):
+        CausalLmTrainerConfig(output_dir=Path("output/x"), max_steps=0).validate()
+    with pytest.raises(ValueError, match="num_train_epochs"):
+        CausalLmTrainerConfig(
+            output_dir=Path("output/x"),
+            max_steps=-1,
+            num_train_epochs=0,
+        ).validate()
+
+
+def test_build_training_arguments_epoch_strategy(monkeypatch, tmp_path: Path):
+    from alien_ink.hf import trainer as trainer_mod
+
+    monkeypatch.setattr(
+        trainer_mod,
+        "device_info",
+        lambda **_kwargs: ("cpu", False, False),
+    )
+    cfg = CausalLmTrainerConfig(
+        output_dir=tmp_path / "out",
+        max_steps=-1,
+        num_train_epochs=3,
+        logging_steps=10,
+    )
+    args = trainer_mod.build_training_arguments(cfg, has_eval=True)
+    assert args.max_steps == -1
+    assert args.num_train_epochs == 3
+    assert args.eval_strategy == "epoch"
+    assert args.save_strategy == "epoch"

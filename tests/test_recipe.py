@@ -13,6 +13,7 @@ from alien_ink.exp.cli import train_override_kwargs, wandb_kwargs  # noqa: E402
 from alien_ink.exp.recipe import (  # noqa: E402
     Gpt2PretrainExperiment,
     scaled_trainer_steps,
+    trainer_length_kwargs,
 )
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 from alien_ink.hf.hardware import COLAB_G4, COLAB_TPU_V6E1, LOCAL_RTX  # noqa: E402
@@ -41,6 +42,14 @@ def test_scaled_trainer_steps_short_run():
 def test_scaled_trainer_steps_rejects_non_positive():
     with pytest.raises(ValueError, match="max_steps"):
         scaled_trainer_steps(0)
+
+
+def test_trainer_length_kwargs_epoch_mode():
+    assert trainer_length_kwargs(max_steps=-1, num_train_epochs=3) == {
+        "max_steps": -1,
+        "num_train_epochs": 3,
+        "logging_steps": 10,
+    }
 
 
 def test_flight_check_run_name_appends_suffix(monkeypatch):
@@ -84,11 +93,11 @@ def test_subset_experiment_defaults(monkeypatch):
     cfg = EXPERIMENT.base_config()
     assert cfg.data.max_train_samples == 20_000
     assert cfg.data.max_eval_samples == 1_000
-    assert cfg.trainer.max_steps == 2_000
+    assert cfg.trainer.max_steps == -1
+    assert cfg.trainer.num_train_epochs == 3
+    assert cfg.trainer.uses_epochs()
     assert cfg.trainer.warmup_steps == 200
-    assert cfg.trainer.logging_steps == 2
-    assert cfg.trainer.eval_steps == 40
-    assert cfg.trainer.save_steps == 40
+    assert cfg.trainer.logging_steps == 10
     assert EXPERIMENT.run_name == "gpt2-pretrain-wpe-subset"
     assert cfg.trainer.run_name == "gpt2-pretrain-wpe-subset-gpu"
     assert cfg.trainer.per_device_train_batch_size == 2
@@ -320,6 +329,7 @@ def test_train_override_kwargs_resume_path():
         (),
         {
             "max_steps": 100,
+            "num_train_epochs": None,
             "learning_rate": None,
             "per_device_train_batch_size": None,
             "gradient_accumulation_steps": None,
@@ -337,6 +347,7 @@ def test_train_override_kwargs_resume_true():
         (),
         {
             "max_steps": None,
+            "num_train_epochs": None,
             "learning_rate": None,
             "per_device_train_batch_size": None,
             "gradient_accumulation_steps": None,
@@ -355,8 +366,17 @@ def test_parser_includes_new_flags():
         module_description="d",
     )
     args = exp.build_parser().parse_args(
-        ["--train", "--no-wandb", "--max-steps", "5", "--resume-from-checkpoint"]
+        [
+            "--train",
+            "--no-wandb",
+            "--max-steps",
+            "-1",
+            "--num-train-epochs",
+            "3",
+            "--resume-from-checkpoint",
+        ]
     )
     assert args.no_wandb is True
-    assert args.max_steps == 5
+    assert args.max_steps == -1
+    assert args.num_train_epochs == 3
     assert args.resume_from_checkpoint is True
