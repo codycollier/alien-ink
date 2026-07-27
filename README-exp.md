@@ -11,9 +11,9 @@
 
 
 - Experiment entrypoints live under `alien_ink/exp/`
-- Each module supports:  `--flight-check`, `--train`, `--spot-check`
+- Each module supports: `--flight-check`, `--train`, `--spot-check`
 - Subset experiments materialize a small prefix (~20k train + 1k eval; 3 epochs)
-- Non-subset experiments sream the corpus and run for max steps
+- Non-subset experiments stream the corpus and run for max steps
 - Log and eval steps are dynamically configured as a convenience
 
 
@@ -35,55 +35,55 @@
 
 ## Running in a notebook (Google Colab)
 
-Ensure secrets from `.env` are set as notebook secrets (key icon to left).
-
+Set notebook secrets (key icon) to match `.env`: `HF_TOKEN`, `WANDB_API_KEY`.
 
 
 ### Quick Reference - Runtime: GPU (default: G4)
 
-- **GPU runtime** → Colab **G4** (L4)
+- **Runtime** → Colab **G4** (NVIDIA L4)
+- Keep Colab's CUDA `torch`; install HF deps + `alien-ink` with `--no-deps`
 
 ```python
 # install, setup, verification
-%pip install -q -U "alien-ink[hf]"
+%pip install -q -U python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
+%pip install -q --no-deps -U "alien-ink"
 
+import torch
 import alien_ink
 from alien_ink.hf.hardware import resolve_accelerator_profile
 
+print("torch", torch.__version__, "cuda", torch.cuda.is_available())
+if torch.cuda.is_available():
+    print("gpu", torch.cuda.get_device_name(0))
 print(alien_ink.stars)
 print(resolve_accelerator_profile())  # label=colab-g4, batch=32, accum=1
 ```
 
 ```python
-# run an experiment
+# run an experiment (use train_flight_check(...) for a smoke test)
 from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
     train,
     train_flight_check,
     spot_check,
+)
 
-# train_flight_check(
 train(
     use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
-    wandb_name="gpt2-pretrain-wpe-subset-nb-tpu",
+    wandb_name="gpt2-pretrain-wpe-subset-nb",  # → …-nb-gpu
 )
 ```
 
 
 ### Quick Reference - Runtime: TPU (default: v6e1)
 
-- **TPU runtime** → Colab **TPU v6e-1** (single chip)
-
-
-#### Setup
-
-- Keep the runtime's PyTorch/XLA stack
-- install alien-ink deps without replacing `torch` / `torch_xla`:
+- **Runtime** → Colab **TPU v6e-1** (single chip)
+- Keep the runtime's PyTorch/XLA stack; do not replace `torch` / `torch_xla`
 
 ```python
-# install, setup, and verification
-%pip install -q python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
+# install, setup, verification
+%pip install -q -U python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
 %pip install -q --no-deps -U "alien-ink"
 
 import torch
@@ -95,24 +95,22 @@ from alien_ink.hf.hardware import resolve_accelerator_profile
 print("torch", torch.__version__, "xla", torch_xla.__version__)
 print("device_type", xr.device_type(), "→", resolve_device())
 print(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
-
-# Expect `resolve_device()` → `xla` and profile `tpu_num_processes=1`.
+# Expect resolve_device() → xla and profile.tpu_num_processes == 1
 ```
 
 ```python
-# run an experiment
+# run an experiment (use train_flight_check(...) for a smoke test)
 from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
     train,
     train_flight_check,
     spot_check,
 )
 
-# train_flight_check(
 train(
     use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
-    wandb_name="gpt2-pretrain-wpe-subset-nb-tpu",
+    wandb_name="gpt2-pretrain-wpe-subset-nb",  # → …-nb-tpu
 )
 ```
 
