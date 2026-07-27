@@ -65,8 +65,9 @@ LOCAL_RTX = AcceleratorProfile(
     gradient_accumulation_steps=16,
 )
 
-# Colab L4-class mid-tier (~24 GB). Kept so L4 / ≥20 GB boxes are not given
-# the G4 96 GB recipe. memory_multiple≈3 → microbatch 32, accum=1.
+# Colab L4-class mid-tier (~22–24 GB usable). Batch 32 @ block_size=1024
+# OOMs (~25G activation headroom needed; TPU's 32G HBM is the floor that
+# fits 32). Microbatch 16 + accum 2 keeps effective batch 32.
 COLAB_L4 = AcceleratorProfile(
     kind="gpu",
     label="colab-l4",
@@ -75,9 +76,9 @@ COLAB_L4 = AcceleratorProfile(
     peak_tflops=121.0,
     precision="fp16",
     vs_rtx_3070=3.0,
-    per_device_train_batch_size=32,
-    per_device_eval_batch_size=32,
-    gradient_accumulation_steps=1,
+    per_device_train_batch_size=16,
+    per_device_eval_batch_size=16,
+    gradient_accumulation_steps=2,
 )
 
 # Colab A100 40 GB (Ampere). memory_multiple=5, compute×7.7. Batch 32 /
@@ -96,7 +97,7 @@ COLAB_A100_40GB = AcceleratorProfile(
 )
 
 # Colab G4 = RTX PRO 6000 Blackwell (~96 GB). memory_multiple=12;
-# microbatch 64 fills HBM far better than the old L4-tuned 32 (TPU OOM at
+# microbatch 64 fills HBM far better than L4's 16 (TPU OOM at
 # batch 64 needed ~51G — G4's 96G has comfortable headroom).
 COLAB_G4 = AcceleratorProfile(
     kind="gpu",

@@ -44,6 +44,17 @@ def test_profile_metrics_a100_40gb():
     assert p.effective_batch_size == 32
 
 
+def test_profile_metrics_colab_l4():
+    p = hw.COLAB_L4
+    assert p.memory_gb == 24.0
+    assert p.memory_multiple == 3.0
+    assert p.vs_rtx_3070 == 3.0
+    assert p.peak_tflops == 121.0
+    assert p.per_device_train_batch_size == 16
+    assert p.gradient_accumulation_steps == 2
+    assert p.effective_batch_size == 32
+
+
 def test_profile_metrics_tpu_v6e1():
     p = hw.COLAB_TPU_V6E1
     assert p.memory_gb == 32.0

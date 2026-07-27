@@ -50,7 +50,7 @@ live device. Multiples are relative to the Mist **RTX 3070** baseline
 | `colab-g4` | **G4** RTX PRO 6000 Blackwell | 96 GB | 500 TFLOPS FP16 | 12.3× | 12× | `64` / `1` | 64 | `-gpu` |
 | `colab-a100-40gb` | **A100** 40 GB (Ampere) | 40 GB | 312 TFLOPS FP16 | 7.7× | 5× | `32` / `1` | 32 | `-gpu` |
 | `colab-tpu-v6e1` | **TPU v6e-1** Trillium (1-chip) | 32 GB | 918 TFLOPS BF16 | 22.6× | 4× | `32` / `1` | 32 | `-tpu` |
-| `colab-l4` | L4 / other ≥20 GB mid-tier | 24 GB | 121 TFLOPS FP16 | 3.0× | 3× | `32` / `1` | 32 | `-gpu` |
+| `colab-l4` | L4 / other ≥20 GB mid-tier | 24 GB | 121 TFLOPS FP16 | 3.0× | 3× | `16` / `2` | 32 | `-gpu` |
 
 Scaling notes:
 
@@ -58,7 +58,7 @@ Scaling notes:
 - **G4** microbatch is raised with the 12× memory headroom (64 vs local’s effective 32). Drop to `32` if you want local-parity tokens/step.
 - **A100 40 GB** uses batch 32 (40 GB is under the ~51G needed for batch 64 @ 1024).
 - **TPU v6e-1** stays at 32: batch 64 OOMs GPT-2 @ `block_size=1024` (~51G HBM).
-- **L4** is auto-selected for mid-VRAM GPUs so they never inherit the G4 96 GB recipe.
+- **L4** uses microbatch 16 + accum 2: batch 32 OOMs on ~22 GB usable VRAM (activation temps for 32 need ~25G).
 - Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use `{run_name}-flight-check-{gpu|tpu}`.
 - Override batch/accum anytime via kwargs or CLI (`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
 
