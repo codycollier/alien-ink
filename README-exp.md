@@ -109,13 +109,12 @@ from alien_ink.hf.hardware import resolve_accelerator_profile
 from pprint import pprint
 
 # verification
+device = xm.xla_device()  # automatically fetches the available TPU device
 print(alien_ink.stars)
 print("torch", torch.__version__, "xla", torch_xla.__version__)
-device = xm.xla_device()  # automatically fetches the available TPU device
 print(f"Using device: {device}")
-print("device_type", xr.device_type(), "→", resolve_device())
-print(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
-# Expect resolve_device() → xla and profile.tpu_num_processes == 1
+print("device_type", xr.device_type(), "→", resolve_device())  # expect xla
+pprint(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
 print(80 * "-")
 ```
 
