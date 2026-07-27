@@ -16,9 +16,15 @@ from alien_ink.exp.cli import (
 )
 from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.gen import SpotCheckConfig, run_spot_check
+from alien_ink.hf.hardware import (
+    AcceleratorProfile,
+    resolve_accelerator_profile,
+    trainer_overrides_for_profile,
+    with_accelerator_suffix,
+)
 from alien_ink.hf.pretrain import Gpt2PretrainConfig, pretrain_gpt2, with_data, with_trainer
 from alien_ink.hf.trainer import CausalLmTrainerConfig
-from alien_ink.log import get_logger
+from alien_ink.log import detail, get_logger
 
 log = get_logger("exp.recipe")
 
@@ -68,21 +74,70 @@ class Gpt2PretrainExperiment:
     def env_file(self) -> Path:
         return self.workdir() / ".env"
 
-    def flight_check_run_name(self) -> str:
-        return f"{self.run_name}-flight-check"
+    def resolved_run_name(
+        self,
+        *,
+        profile: AcceleratorProfile | None = None,
+        wandb_name: str | None = None,
+        flight_check: bool = False,
+    ) -> str:
+        """Run / W&B name with ``-gpu`` / ``-tpu`` (or ``-cpu``) suffix."""
+        profile = profile or resolve_accelerator_profile()
+        base = wandb_name or self.run_name
+        if flight_check and wandb_name is None:
+            base = f"{self.run_name}-flight-check"
+        elif flight_check and wandb_name is not None and "flight-check" not in wandb_name:
+            base = f"{wandb_name}-flight-check"
+        return with_accelerator_suffix(base, profile.kind)
 
-    def base_config(self) -> Gpt2PretrainConfig:
-        """Full pretrain defaults (~1.6B tokens at 50k steps unless overridden)."""
+    def flight_check_run_name(self, profile: AcceleratorProfile | None = None) -> str:
+        return self.resolved_run_name(profile=profile, flight_check=True)
+
+    def checkpoint_output_dirs(self) -> list[Path]:
+        """Candidate dirs for spot-check (device-suffixed + legacy unsuffixed)."""
+        root = self.output_root()
+        names: list[str] = []
+        for kind in ("gpu", "tpu", "cpu"):
+            names.append(with_accelerator_suffix(self.run_name, kind))
+            names.append(
+                with_accelerator_suffix(f"{self.run_name}-flight-check", kind)
+            )
+        names.extend([self.run_name, f"{self.run_name}-flight-check"])
+        # Preserve order, drop duplicates.
+        seen: set[str] = set()
+        dirs: list[Path] = []
+        for name in names:
+            if name in seen:
+                continue
+            seen.add(name)
+            dirs.append(root / name)
+        return dirs
+
+    def base_config(
+        self,
+        profile: AcceleratorProfile | None = None,
+        *,
+        wandb_name: str | None = None,
+    ) -> Gpt2PretrainConfig:
+        """Full pretrain defaults with accelerator-aware batch / run name."""
+        profile = profile or resolve_accelerator_profile()
+        run_name = self.resolved_run_name(profile=profile, wandb_name=wandb_name)
+        detail(
+            f"accelerator profile: {profile.label} "
+            f"(batch={profile.per_device_train_batch_size}, "
+            f"accum={profile.gradient_accumulation_steps}, "
+            f"run_name={run_name})",
+            logger=log,
+        )
         return Gpt2PretrainConfig(
             data=self.data_factory(),
             trainer=CausalLmTrainerConfig(
-                output_dir=self.output_root() / self.run_name,
+                output_dir=self.output_root() / run_name,
                 max_steps=self.max_steps,
-                per_device_train_batch_size=2,
-                gradient_accumulation_steps=16,
                 learning_rate=6e-4,
                 warmup_steps=self.warmup_steps,
-                run_name=self.run_name,
+                run_name=run_name,
+                **trainer_overrides_for_profile(profile),
                 **scaled_trainer_steps(self.max_steps),
             ),
         )
@@ -105,7 +160,10 @@ class Gpt2PretrainExperiment:
         are always written under the run ``output_dir``. On Colab TPU notebooks,
         auto-launches via ``notebook_launcher`` and returns ``(None, None)``.
         """
-        cfg = self.base_config()
+        profile = resolve_accelerator_profile()
+        cfg = self.base_config(profile, wandb_name=wandb_name)
+        # wandb_name already folded into run_name; avoid double-apply in pretrain.
+        resolved_name = cfg.trainer.run_name
         if trainer_overrides:
             cfg = with_trainer(cfg, **trainer_overrides)
             # Keep log/eval/save density aligned when max_steps is overridden;
@@ -118,6 +176,11 @@ class Gpt2PretrainExperiment:
                 }
                 if auto:
                     cfg = with_trainer(cfg, **auto)
+        processes = (
+            tpu_num_processes
+            if tpu_num_processes is not None
+            else profile.tpu_num_processes
+        )
         return pretrain_gpt2(
             cfg,
             run_label="regular",
@@ -125,11 +188,11 @@ class Gpt2PretrainExperiment:
             env_files=(self.env_file(),),
             wandb_entity=wandb_entity,
             wandb_project=wandb_project,
-            wandb_name=wandb_name,
+            wandb_name=resolved_name,
             use_wandb=use_wandb,
             resume_from_checkpoint=resume_from_checkpoint,
             tpu_launch=tpu_launch,
-            tpu_num_processes=tpu_num_processes,
+            tpu_num_processes=processes,
         )
 
     def train_flight_check(
@@ -148,8 +211,13 @@ class Gpt2PretrainExperiment:
 
         Returns ``(trainer, run_summary)`` like :meth:`train`.
         """
-        flight_name = self.flight_check_run_name()
-        base = self.base_config()
+        profile = resolve_accelerator_profile()
+        flight_name = self.resolved_run_name(
+            profile=profile,
+            wandb_name=wandb_name,
+            flight_check=True,
+        )
+        base = self.base_config(profile)
         data_overrides: dict = {
             "max_eval_samples": 10,
             "stream_shuffle_buffer": 50,
@@ -165,6 +233,7 @@ class Gpt2PretrainExperiment:
                 max_steps=10,
                 warmup_steps=0,
                 per_device_train_batch_size=1,
+                per_device_eval_batch_size=1,
                 gradient_accumulation_steps=1,
                 logging_steps=1,
                 eval_steps=5,
@@ -175,6 +244,11 @@ class Gpt2PretrainExperiment:
         )
         if trainer_overrides:
             cfg = with_trainer(cfg, **trainer_overrides)
+        processes = (
+            tpu_num_processes
+            if tpu_num_processes is not None
+            else profile.tpu_num_processes
+        )
         return pretrain_gpt2(
             cfg,
             run_label="flight_check",
@@ -182,21 +256,18 @@ class Gpt2PretrainExperiment:
             env_files=(self.env_file(),),
             wandb_entity=wandb_entity,
             wandb_project=wandb_project,
-            wandb_name=wandb_name,
+            wandb_name=flight_name,
             use_wandb=use_wandb,
             resume_from_checkpoint=resume_from_checkpoint,
             tpu_launch=tpu_launch,
-            tpu_num_processes=tpu_num_processes,
+            tpu_num_processes=processes,
         )
 
     def spot_check(self) -> None:
         """Sample completions from the newest saved checkpoint."""
         cfg = self.base_config()
         run_spot_check(
-            output_dirs=[
-                self.output_root() / self.run_name,
-                self.output_root() / self.flight_check_run_name(),
-            ],
+            output_dirs=self.checkpoint_output_dirs(),
             spot=SpotCheckConfig(),
             text_source=cfg.data.source,
             title=self.spot_check_title,

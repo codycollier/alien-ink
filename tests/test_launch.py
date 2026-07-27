@@ -59,13 +59,13 @@ def test_launch_tpu_calls_notebook_launcher(monkeypatch):
     import sys
 
     monkeypatch.setitem(sys.modules, "accelerate", FakeAccelerate)
-    monkeypatch.setattr(launch_mod, "tpu_num_processes", lambda default=8: 8)
+    monkeypatch.setattr(launch_mod, "tpu_num_processes", lambda default=1: 1)
 
     def _fn():
         return None
 
     launch_mod.launch_tpu(_fn, mixed_precision="bf16")
     assert len(calls) == 1
-    assert calls[0]["num_processes"] == 8
+    assert calls[0]["num_processes"] == 1
     assert calls[0]["mixed_precision"] == "bf16"
     assert calls[0]["fn"] is _fn

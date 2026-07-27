@@ -3,10 +3,9 @@
 
 Thin experiment entrypoint over :class:`alien_ink.exp.recipe.Gpt2PretrainExperiment`.
 
-Defaults are tuned to fit an 8 GB GPU (e.g. an RTX 3070): GPT-2 small (~124M
-params), bf16 mixed precision, gradient checkpointing, and a small per-device
-batch size with gradient accumulation. If you hit CUDA OOM, drop
-``per_device_train_batch_size`` to 1 and/or lower ``block_size``.
+Batch / accum defaults come from :mod:`alien_ink.hf.hardware` (local RTX ~8 GB,
+Colab G4/L4, or Colab TPU v6e-1). Run names gain a ``-gpu`` / ``-tpu`` suffix.
+If you hit CUDA OOM, drop ``per_device_train_batch_size`` and/or ``block_size``.
 
 Run from an installed environment (CLI)::
 

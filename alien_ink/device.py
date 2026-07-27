@@ -82,6 +82,9 @@ def _tpu_chip_name() -> str | None:
         value = os.environ.get(key)
         if value:
             return value
+    # Colab TPU notebooks in this project are assumed to be v6e-1.
+    if os.environ.get("COLAB_RELEASE_TAG") or os.environ.get("COLAB_BACKEND_VERSION"):
+        return "TPU v6e-1"
     return None
 
 
@@ -220,6 +223,9 @@ _PEAK_TFLOPS: dict[str, dict[str, float]] = {
     "NVIDIA H100 80GB HBM3": {"fp16": 989.0, "bf16": 989.0, "fp32": 67.0},
     "Tesla T4": {"fp16": 65.0, "bf16": 0.0, "fp32": 8.1},
     "Tesla V100-SXM2-16GB": {"fp16": 125.0, "bf16": 0.0, "fp32": 15.7},
+    # Cloud TPU (per-chip peaks; Colab TPU notebook assumed v6e-1)
+    "TPU v6e": {"fp16": 918.0, "bf16": 918.0, "fp32": 0.0},
+    "TPU v6e-1": {"fp16": 918.0, "bf16": 918.0, "fp32": 0.0},
 }
 
 

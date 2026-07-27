@@ -17,16 +17,32 @@ Subset experiments materialize a small prefix (~20k train + 1k eval) instead of
 streaming the full corpus, and use shorter default training (`max_steps=2000`).
 
 Mode flags (`--train`, `--flight-check`, `--spot-check`) are mutually exclusive.
-Flight-check W&B / Trainer run names are `{run_name}-flight-check` (for example
-`gpt2-pretrain-wikitext-flight-check`).
 
 Credentials and artifacts resolve relative to `cwd` at call time (`.env`,
 `output/`). Optional `.env` keys are listed in `.env.example`.
 
+### Accelerator profiles (batch + run names)
+
+Defaults auto-pick from the machine. Run names / `output_dir` get a suffix:
+`-gpu`, `-tpu`, or `-cpu` (for example `gpt2-pretrain-wpe-subset-gpu`).
+
+| Environment | Assumed hardware | Train batch / accum | Run suffix |
+|---|---|---|---|
+| Local CUDA (≤12 GB) | RTX (e.g. 3070 8 GB) | `2` / `16` | `-gpu` |
+| Colab GPU / L4 / ≥20 GB | Colab **G4** (NVIDIA L4 ~24 GB) | `32` / `1` | `-gpu` |
+| XLA/TPU | Colab **TPU v6e-1** (1×32 GB HBM) | `64` / `1` | `-tpu` |
+
+Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use
+`{run_name}-flight-check-{gpu|tpu}`.
+
+Override batch/accum anytime via kwargs or CLI
+(`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
+
 ## Running locally with a GPU
 
 Use this path when you have a machine with a local GPU and want to drive
-experiments from the shell (or a background `bin/` script).
+experiments from the shell (or a background `bin/` script). Defaults stay
+conservative for an ~8 GB RTX.
 
 ### Setup
 
@@ -80,15 +96,12 @@ python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --spot-check
 python -m alien_ink.exp.gpt2_pretrain_c4_subset --spot-check
 ```
 
-Background pretrain with a timestamped log (see `bin/`):
+Background pretrain on Mist (local RTX 3070) with a timestamped log. Edit
+`bin/gpt2_pretrain_mist.sh` to uncomment the mode (`--train` /
+`--flight-check`) and dataset, then:
 
 ```bash
-./bin/gpt2_pretrain_wikitext.sh
-./bin/gpt2_pretrain_wikipedia_english.sh
-./bin/gpt2_pretrain_c4.sh
-./bin/gpt2_pretrain_wikitext_subset.sh
-./bin/gpt2_pretrain_wikipedia_english_subset.sh
-./bin/gpt2_pretrain_c4_subset.sh
+./bin/gpt2_pretrain_mist.sh
 ```
 
 ### Weights & Biases (entity / project / run name)
@@ -96,21 +109,19 @@ Background pretrain with a timestamped log (see `bin/`):
 W&B layout is organization → team (entity) → project → runs. Set entity,
 project, and run name with CLI flags or function kwargs only (not via
 environment variables). Defaults: entity `logbook`, project `ink-explore`,
-run name from the experiment config. Pass `--no-wandb` (or `use_wandb=False`)
-to skip W&B entirely.
+run name from the experiment config **plus** `-gpu` / `-tpu`. Pass
+`--no-wandb` (or `use_wandb=False`) to skip W&B entirely.
 
 ```bash
 python -m alien_ink.exp.gpt2_pretrain_wikitext --train \
   --wandb-entity logbook --wandb-project ink-explore --wandb-name my-run
+# → W&B / output name: my-run-gpu (on CUDA)
+
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --train \
-  --wandb-entity logbook --wandb-project ink-explore \
-  --wandb-name gpt2-pretrain-wpe-subset
+  --wandb-entity logbook --wandb-project ink-explore
 
 python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check --no-wandb
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --flight-check --no-wandb
-
-./bin/gpt2_pretrain_wikitext.sh
-./bin/gpt2_pretrain_wikipedia_english_subset.sh
 ```
 
 ### Training overrides / resume
@@ -124,20 +135,6 @@ python -m alien_ink.exp.gpt2_pretrain_wikitext --train \
   --per-device-train-batch-size 1 \
   --gradient-accumulation-steps 32 \
   --resume-from-checkpoint
-
-python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --train \
-  --max-steps 1000 \
-  --learning-rate 3e-4 \
-  --per-device-train-batch-size 1 \
-  --gradient-accumulation-steps 32 \
-  --resume-from-checkpoint
-
-python -m alien_ink.exp.gpt2_pretrain_c4 --train \
-  --max-steps 1000 \
-  --learning-rate 3e-4 \
-  --per-device-train-batch-size 1 \
-  --gradient-accumulation-steps 32 \
-  --resume-from-checkpoint
 ```
 
 `--resume-from-checkpoint` alone auto-picks the latest checkpoint under the run
@@ -146,17 +143,16 @@ python -m alien_ink.exp.gpt2_pretrain_c4 --train \
 ### Run artifacts (repro + speed comparison)
 
 Each training run writes two JSON files under the run `output_dir`
-(for example `output/gpt2-pretrain-wikitext/`):
+(for example `output/gpt2-pretrain-wikitext-gpu/`):
 
 | File | When | Contents |
 |---|---|---|
-| `run_config.json` | before training | Fully resolved recipe (data / arch / trainer), accelerator fingerprint (GPU name, VRAM, CUDA, precision, world size), software versions, tokens/step |
+| `run_config.json` | before training | Fully resolved recipe (data / arch / trainer), accelerator fingerprint (GPU/TPU name, VRAM, CUDA, precision, world size), software versions, tokens/step |
 | `run_summary.json` | when training stops | Steps, tokens trained, wall time, tokens/sec, estimated TFLOP/s + MFU (Kaplan 6N), train loss, status (`completed` / `interrupted` / `failed`) |
 
 The same summary fields are pushed to the W&B run summary when W&B is enabled.
-Use identical recipe settings (especially `block_size`, batch size, and
-`gradient_accumulation_steps`) across machines to compare GPU speed fairly;
-`tokens_per_sec` and `tflops_per_sec` are the main cross-hardware metrics.
+`tokens_per_sec` and `tflops_per_sec` are the main cross-hardware metrics; note
+batch/accum differ by profile, so compare utilization (MFU) carefully.
 
 ### Tests
 
@@ -167,21 +163,28 @@ pytest
 
 ## Running in a notebook (Google Colab)
 
-Ensure secrets from .env are set as notebook secrets (key icon to left).
+Ensure secrets from `.env` are set as notebook secrets (key icon to left).
 
-### Install (GPU / CPU)
+This project assumes:
+
+- **GPU runtime** → Colab **G4** (L4)
+- **TPU runtime** → Colab **TPU v6e-1** (single chip)
+
+### Install (GPU / G4)
 
 ```python
 %pip install -q -U "alien-ink[hf]"
 ```
 
-```
+```python
 import alien_ink
+from alien_ink.hf.hardware import resolve_accelerator_profile
 
 print(alien_ink.stars)
+print(resolve_accelerator_profile())  # label=colab-g4, batch=32, accum=1
 ```
 
-### Install (TPU)
+### Install (TPU v6e-1)
 
 1. Runtime → Change runtime type → **TPU**.
 2. Keep the runtime's PyTorch/XLA stack; install alien-ink deps without replacing
@@ -206,45 +209,54 @@ import torch
 import torch_xla
 import torch_xla.runtime as xr
 from alien_ink.device import resolve_device
+from alien_ink.hf.hardware import resolve_accelerator_profile
 
 print("torch", torch.__version__, "xla", torch_xla.__version__)
 print("device_type", xr.device_type(), "→", resolve_device())
+print(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
 ```
 
-Expect `resolve_device()` → `xla`.
+Expect `resolve_device()` → `xla` and profile `tpu_num_processes=1`.
 
 ### Call the experiment functions
 
 ```python
-# from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
-from alien_ink.exp.gpt2_pretrain_wikitext import train, train_flight_check, spot_check
+from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
+    train,
+    train_flight_check,
+    spot_check,
+)
 
-
-# train(
 train_flight_check(
     use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
-    wandb_name="my-run",
 )
 
+# Full run (auto batch/accum + -gpu / -tpu run name):
+# train(
+#     use_wandb=True,
+#     wandb_entity="logbook",
+#     wandb_project="ink-explore",
+# )
 ```
 
 On a TPU notebook, `train` / `train_flight_check` auto-wrap with Accelerate's
-`notebook_launcher` (multi-core). Override with `tpu_launch=False` or set
-`tpu_num_processes=N`. That path returns `(None, None)`; check
-`output/.../run_summary.json` for metrics.
+`notebook_launcher` using **1 process** (v6e-1). Override with
+`tpu_launch=False` or `tpu_num_processes=N`. That path returns `(None, None)`;
+check `output/...-tpu/run_summary.json` for metrics.
 
-Gradient checkpointing is auto-disabled on XLA/TPU: PyTorch's native
-`torch.utils.checkpoint` crashes with `module 'torch' has no attribute 'xla'`.
-TPU HBM is usually enough for GPT-2 small without it.
+XLA notes (applied automatically):
 
-### CLI on a Cloud TPU VM
+- Gradient checkpointing off (native torch checkpoint breaks on XLA)
+- Optimizer forced to `adamw_torch` (fused AdamW rejects XLA)
+- Prefer large `per_device_train_batch_size` and `gradient_accumulation_steps=1`
 
-Launch multi-core training with XLA spawn (do not run bare `python -m` if you
-want all cores):
+### CLI on a multi-chip Cloud TPU VM
+
+Colab v6e-1 is single-chip. On a multi-chip VM, set the process count explicitly:
 
 ```bash
-python -m torch_xla.distributed.xla_spawn --num_cores=8 \
+TPU_NUM_DEVICES=8 python -m torch_xla.distributed.xla_spawn --num_cores=8 \
   -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check
 ```

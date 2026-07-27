@@ -32,8 +32,12 @@ def in_notebook() -> bool:
     return ipython.__class__.__name__ == "ZMQInteractiveShell"
 
 
-def tpu_num_processes(default: int = 8) -> int:
-    """Best-effort TPU process count for ``notebook_launcher`` / xla_spawn."""
+def tpu_num_processes(default: int = 1) -> int:
+    """Best-effort TPU process count for ``notebook_launcher`` / xla_spawn.
+
+    Defaults to ``1`` (Colab TPU v6e-1 is a single chip). Multi-chip VMs should
+    set ``TPU_NUM_DEVICES`` or rely on ``torch_xla.runtime.global_device_count``.
+    """
     for key in ("TPU_NUM_DEVICES", "TPU_PROCESS_COUNT", "COLAB_TPU_NUM_DEVICES"):
         raw = os.environ.get(key)
         if raw:
