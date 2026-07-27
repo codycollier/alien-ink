@@ -57,7 +57,7 @@ Model training configurations and recipes are `experiments`.
 import alien_ink
 
 print(alien_ink.stars)
-print(alien_ink.device.introspect())  # expect profile: colab-g4  batch: 32  accum: 1
+print(alien_ink.device.introspect())
 ```
 
 ```python
