@@ -304,3 +304,120 @@ def collect_accelerator_info(
         peak_tflops=lookup_peak_tflops(gpu_name, prec),
         xla_available=xla_available,
     )
+
+
+_INTROSPECT_BORDER = 80 * "-"
+_INTROSPECT_LABEL_WIDTH = 12  # includes trailing colon
+_INTROSPECT_TITLE = ":: introspection complete — echoes from the substrate"
+
+
+def _torch_xla_version() -> str | None:
+    if not is_torch_xla_available():
+        return None
+    try:
+        import torch_xla
+
+        return getattr(torch_xla, "__version__", None)
+    except Exception:
+        return None
+
+
+def _xla_device_type() -> str | None:
+    if not is_torch_xla_available():
+        return None
+    try:
+        import torch_xla.runtime as xr
+
+        return str(xr.device_type())
+    except Exception:
+        return None
+
+
+def _xla_device_str() -> str | None:
+    if not is_torch_xla_available():
+        return None
+    try:
+        return str(torch_device("xla"))
+    except Exception:
+        return None
+
+
+def _kv(label: str, value: Any) -> str:
+    """Format ``label: value`` with a right-aligned label column."""
+    return f"{label + ':':>{_INTROSPECT_LABEL_WIDTH}} {value}"
+
+
+def introspect(
+    *,
+    prefer_bf16: bool = True,
+    prefer_fp16: bool = True,
+) -> str:
+    """Return a bordered runtime summary for notebooks / verification cells.
+
+    Safe in any environment (CPU, CUDA, MPS, XLA/TPU). Intended usage::
+
+        import alien_ink
+        print(alien_ink.stars)
+        print(alien_ink.device.introspect())
+    """
+    info = collect_accelerator_info(
+        prefer_bf16=prefer_bf16,
+        prefer_fp16=prefer_fp16,
+    )
+    rows: list[tuple[str, Any]] = [("torch", info.torch_version)]
+
+    if info.device == "xla":
+        rows.append(("xla", _torch_xla_version() or "?"))
+        xla_dev = _xla_device_str()
+        if xla_dev:
+            rows.append(("using", xla_dev))
+        xla_type = _xla_device_type()
+        if xla_type:
+            rows.append(("device_type", f"{xla_type} → {info.device}"))
+        rows.append(("tpu", info.gpu_name or "TPU"))
+        rows.append(("cores", info.gpu_count))
+    else:
+        cuda_value: Any = info.cuda_available
+        if info.cuda_available and info.cuda_version:
+            cuda_value = f"True  ({info.cuda_version}"
+            if info.cudnn_version:
+                cuda_value += f", cudnn {info.cudnn_version}"
+            cuda_value += ")"
+        rows.append(("cuda", cuda_value))
+        if info.cuda_available and info.gpu_name:
+            gpu = info.gpu_name
+            if info.gpu_memory_total_gb is not None:
+                gpu = f"{gpu} ({info.gpu_memory_total_gb:g} GB)"
+            rows.append(("gpu", gpu))
+        elif info.device == "mps" and info.gpu_name:
+            rows.append(("gpu", info.gpu_name))
+
+    rows.append(("device", info.device))
+    rows.append(("precision", info.precision))
+    rows.append(("world_size", info.world_size))
+    if info.peak_tflops is not None:
+        rows.append(("peak_tflops", f"{info.peak_tflops:g}"))
+
+    try:
+        # Lazy import: hardware.py depends on resolve_device().
+        from alien_ink.hf.hardware import resolve_accelerator_profile
+
+        profile = resolve_accelerator_profile()
+        rows.append(
+            (
+                "profile",
+                f"{profile.label}  batch: {profile.per_device_train_batch_size}  "
+                f"accum: {profile.gradient_accumulation_steps}",
+            )
+        )
+    except Exception:
+        pass
+
+    body = "\n".join(_kv(label, value) for label, value in rows)
+    return (
+        f"{_INTROSPECT_BORDER}\n"
+        f"{_INTROSPECT_TITLE}\n"
+        f"\n"
+        f"{body}\n"
+        f"{_INTROSPECT_BORDER}"
+    )
