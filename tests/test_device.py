@@ -211,6 +211,6 @@ def test_introspect_xla(monkeypatch):
     assert device_mod._kv("device", "xla") in text
     assert device_mod._kv("precision", "bf16") in text
     assert device_mod._kv("peak_tflops", "918") in text
-    assert device_mod._kv("profile", "colab-tpu-v6e1  batch: 64  accum: 1") in text
+    assert device_mod._kv("profile", "colab-tpu-v6e1  batch: 32  accum: 1") in text
     assert text.startswith(80 * "-")
     assert text.endswith(80 * "-")

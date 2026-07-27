@@ -29,7 +29,7 @@ Model training configurations and recipes are `experiments`.
 |---|---|---|---|
 | Local CUDA (≤12 GB) | RTX (e.g. 3070 8 GB) | `2` / `16` | `-gpu` |
 | Colab GPU / L4 / ≥20 GB | Colab **G4** (NVIDIA L4 ~24 GB) | `32` / `1` | `-gpu` |
-| XLA/TPU | Colab **TPU v6e-1** (1×32 GB HBM) | `64` / `1` | `-tpu` |
+| XLA/TPU | Colab **TPU v6e-1** (1×32 GB HBM) | `32` / `1` | `-tpu` |
 
 
 - Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use `{run_name}-flight-check-{gpu|tpu}`.

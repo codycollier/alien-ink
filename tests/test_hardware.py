@@ -16,7 +16,7 @@ def test_resolve_profile_tpu(monkeypatch):
     profile = hw.resolve_accelerator_profile()
     assert profile == hw.COLAB_TPU_V6E1
     assert profile.kind == "tpu"
-    assert profile.per_device_train_batch_size == 64
+    assert profile.per_device_train_batch_size == 32
     assert profile.gradient_accumulation_steps == 1
     assert profile.tpu_num_processes == 1
 

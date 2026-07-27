@@ -41,11 +41,12 @@ COLAB_G4 = AcceleratorProfile(
 )
 
 # Colab TPU v6e-1: single chip, 32 GB HBM — large batch, no accum, 1 process.
+# Batch 64 OOMs GPT-2 @ block_size=1024 (~51G HBM for attention/logits temps).
 COLAB_TPU_V6E1 = AcceleratorProfile(
     kind="tpu",
     label="colab-tpu-v6e1",
-    per_device_train_batch_size=64,
-    per_device_eval_batch_size=64,
+    per_device_train_batch_size=32,
+    per_device_eval_batch_size=32,
     gradient_accumulation_steps=1,
     tpu_num_processes=1,
 )
