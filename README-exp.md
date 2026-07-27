@@ -10,7 +10,7 @@
 | C4 English (20k subset) | `alien_ink.exp.gpt2_pretrain_c4_subset` |
 
 
-w- Experiment entrypoints live under `alien_ink/exp/`
+- Experiment entrypoints live under `alien_ink/exp/`
 - Each module supports:  `--flight-check`, `--train`, `--spot-check`
 - Subset experiments materialize a small prefix (~20k train + 1k eval; 3 epochs)
 - Non-subset experiments sream the corpus and run for max steps
