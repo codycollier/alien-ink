@@ -1,8 +1,10 @@
 
 # Overview
 
+Model training configurations and recipes are `experiments`.
 
-## Running Experiments - General
+
+## Experiment options
 
 | Experiment | Module |
 |---|---|
@@ -32,6 +34,7 @@
 
 - Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use `{run_name}-flight-check-{gpu|tpu}`.
 - Override batch/accum anytime via kwargs or CLI (`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
+
 
 
 ---
@@ -129,34 +132,30 @@ XLA notes (applied automatically):
 
 
 
-## Running locally with a GPU (mist)
+## Mist - Running locally (RTX 3070)
 
 Use this path when you have a machine with a local GPU and want to drive
 experiments from the shell (or a background `bin/` script). Defaults stay
 conservative for an ~8 GB RTX 3070.
 
 
-### Setup
-
 ```bash
-uv venv
-source .venv/bin/activate
-# PyPI torch is CUDA 13.0; cu126 works with CUDA 12.x drivers (e.g. 12.2).
-UV_TORCH_BACKEND=cu126 uv pip install -e ".[hf]"
-cp .env.example .env   # then fill in HF_TOKEN / WANDB_API_KEY
-```
-
-Or:
-
-```bash
+# Setup
 ./bin/exp-setup.sh
-cp .env.example .env   # then fill in HF_TOKEN / WANDB_API_KEY
+source .venv/bin/activate
+```
+
+```bash
+# open and edit as needed
+
+# Run a model training / experiment
+./bin/gpt2_pretrain_mist.sh
 ```
 
 
-### Run
+### Manual examples
 
-Flight check (fast end-to-end smoke test):
+Run short flight checks
 
 ```bash
 python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check
@@ -165,17 +164,6 @@ python -m alien_ink.exp.gpt2_pretrain_c4 --flight-check
 python -m alien_ink.exp.gpt2_pretrain_wikitext_subset --flight-check
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --flight-check
 python -m alien_ink.exp.gpt2_pretrain_c4_subset --flight-check
-```
-
-Full training run:
-
-```bash
-python -m alien_ink.exp.gpt2_pretrain_wikitext --train
-python -m alien_ink.exp.gpt2_pretrain_wikipedia_english --train
-python -m alien_ink.exp.gpt2_pretrain_c4 --train
-python -m alien_ink.exp.gpt2_pretrain_wikitext_subset --train
-python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --train
-python -m alien_ink.exp.gpt2_pretrain_c4_subset --train
 ```
 
 Spot-check completions from the latest saved checkpoint:
@@ -189,19 +177,12 @@ python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --spot-check
 python -m alien_ink.exp.gpt2_pretrain_c4_subset --spot-check
 ```
 
-Background pretrain on Mist (local RTX 3070) with a timestamped log. Edit
-`bin/gpt2_pretrain_mist.sh` to uncomment the mode (`--train` /
-`--flight-check`) and dataset, then:
-
-```bash
-./bin/gpt2_pretrain_mist.sh
-```
 
 
 
 ---
 
-# Various customization options and dev details
+# Appendix - Customizations and Dev Details
 
 
 ### Weights & Biases (entity / project / run name)
