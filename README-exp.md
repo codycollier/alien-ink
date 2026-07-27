@@ -101,7 +101,6 @@ train(
 # verification imports
 import torch
 import torch_xla
-import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
 import alien_ink
 from alien_ink.device import resolve_device
@@ -109,10 +108,9 @@ from alien_ink.hf.hardware import resolve_accelerator_profile
 from pprint import pprint
 
 # verification
-device = xm.xla_device()  # automatically fetches the available TPU device
 print(alien_ink.stars)
 print("torch", torch.__version__, "xla", torch_xla.__version__)
-print(f"Using device: {device}")
+print(f"Using device: {torch_xla.device}")
 print("device_type", xr.device_type(), "→", resolve_device())  # expect xla
 pprint(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
 print(80 * "-")
