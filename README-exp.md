@@ -103,6 +103,8 @@ print(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
 
 ```python
 # run an experiment (use train_flight_check(...) for a smoke test)
+# Auto-wraps with Accelerate notebook_launcher (1 process on v6e-1).
+# Returns (None, None); metrics in output/...-tpu/run_summary.json
 from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
     train,
     train_flight_check,
@@ -114,13 +116,10 @@ train(
     wandb_entity="logbook",
     wandb_project="ink-explore",
     wandb_name="gpt2-pretrain-wpe-subset-nb-tpu",
+    # tpu_num_processes=1,  # default for v6e-1; set N for multi-chip
+    # tpu_launch=False,     # skip notebook_launcher (debug / already launched)
 )
 ```
-
-On a TPU notebook, `train` / `train_flight_check` auto-wrap with Accelerate's
-`notebook_launcher` using **1 process** (v6e-1). Override with
-`tpu_launch=False` or `tpu_num_processes=N`. That path returns `(None, None)`;
-check `output/...-tpu/run_summary.json` for metrics.
 
 XLA notes (applied automatically):
 
