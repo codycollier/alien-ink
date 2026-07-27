@@ -50,22 +50,27 @@ Model training configurations and recipes are `experiments`.
 
 ```python
 # install, setup, verification
+# (if upgrades happen, restart session manually)
 %pip install -q -U python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
 %pip install -q --no-deps -U "alien-ink"
 
+# verification imports
 import torch
 import alien_ink
 from alien_ink.hf.hardware import resolve_accelerator_profile
+from pprint import pprint
 
+# verification
+print(alien_ink.stars)
 print("torch", torch.__version__, "cuda", torch.cuda.is_available())
 if torch.cuda.is_available():
     print("gpu", torch.cuda.get_device_name(0))
-print(alien_ink.stars)
-print(resolve_accelerator_profile())  # label=colab-g4, batch=32, accum=1
+pprint(resolve_accelerator_profile())  # label=colab-g4, batch=32, accum=1
+print(80 * "-")
 ```
 
 ```python
-# run an experiment (use train_flight_check(...) for a smoke test)
+# run a training experiment
 from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
     train,
     train_flight_check,
@@ -89,28 +94,33 @@ train(
 
 ```python
 # install, setup, verification
+# (if upgrades happen, restart session manually)
 %pip install -q -U python-dotenv "accelerate>=1.1.0" "datasets>=2.14" "transformers>=4.40" "wandb>=0.16"
 %pip install -q --no-deps -U "alien-ink"
 
+# verification imports
 import torch
 import torch_xla
 import torch_xla.core.xla_model as xm
 import torch_xla.runtime as xr
+import alien_ink
 from alien_ink.device import resolve_device
 from alien_ink.hf.hardware import resolve_accelerator_profile
+from pprint import pprint
 
+# verification
+print(alien_ink.stars)
 print("torch", torch.__version__, "xla", torch_xla.__version__)
 device = xm.xla_device()  # automatically fetches the available TPU device
 print(f"Using device: {device}")
 print("device_type", xr.device_type(), "→", resolve_device())
 print(resolve_accelerator_profile())  # label=colab-tpu-v6e1, batch=64, accum=1
 # Expect resolve_device() → xla and profile.tpu_num_processes == 1
+print(80 * "-")
 ```
 
 ```python
-# run an experiment (use train_flight_check(...) for a smoke test)
-# Auto-wraps with Accelerate notebook_launcher (1 process on v6e-1).
-# Returns (None, None); metrics in output/...-tpu/run_summary.json
+# Run a training experiment
 from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import (
     train,
     train_flight_check,
