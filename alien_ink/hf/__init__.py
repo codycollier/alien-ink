@@ -6,6 +6,7 @@ Submodules:
   model    — GPT-2 / GPT-NeoX / Gemma build / checkpoint load
   trainer  — TrainingArguments / Trainer builders
   metrics  — FLOPs / throughput / run_config + run_summary artifacts
+  recipe   — Recipe dataclass (data / model / hardware / wandb / schedule)
   pretrain — causal-LM pretrain entrypoint (optional W&B via alien_ink.wb)
   gen      — generation / spot-check
 """

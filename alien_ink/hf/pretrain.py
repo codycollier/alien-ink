@@ -1,13 +1,16 @@
 """High-level causal-LM pretraining on Hugging Face datasets.
 
-Composes data + architecture + trainer configs. Defaults assume a local GPU
-(Mist / RTX 3070 ~8 GB): microbatch 2, gradient accumulation 16, block 1024.
+Composes data + architecture + trainer configs. Prefer defining a
+:class:`~alien_ink.hf.recipe.Recipe` in sample programs; this module is the
+runtime orchestrator that recipes materialize into.
 """
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
+from typing import Any
 
 from datasets import IterableDataset
 from transformers import set_seed
@@ -35,11 +38,6 @@ from alien_ink.wb import build_run_config, require_wandb_identity, set_wandb_dir
 
 log = get_logger("hf.pretrain")
 
-# Mist RTX 3070 (~8 GB) batch recipe: effective batch = 2 * 16 = 32.
-_MIST_TRAIN_BATCH = 2
-_MIST_EVAL_BATCH = 2
-_MIST_GRAD_ACCUM = 16
-
 
 @dataclass(frozen=True)
 class PretrainConfig:
@@ -51,9 +49,6 @@ class PretrainConfig:
         default_factory=lambda: CausalLmTrainerConfig(
             output_dir=Path.cwd() / "output" / "pretrain",
             run_name="pretrain",
-            per_device_train_batch_size=_MIST_TRAIN_BATCH,
-            per_device_eval_batch_size=_MIST_EVAL_BATCH,
-            gradient_accumulation_steps=_MIST_GRAD_ACCUM,
         )
     )
 
@@ -218,6 +213,7 @@ def pretrain(
     wandb_name: str | None = None,
     use_wandb: bool | None = None,
     resume_from_checkpoint: str | Path | bool | None = None,
+    extra_configs: Mapping[str, Any] | None = None,
 ):
     """End-to-end: env → data → model → trainer → optional W&B train/save.
 
@@ -230,6 +226,9 @@ def pretrain(
     Set ``use_wandb=False`` (or ``trainer.report_to="none"``) to skip Weights &
     Biases entirely. ``resume_from_checkpoint`` follows HF Trainer semantics
     (path, ``True`` for latest checkpoint, or ``None``).
+
+    ``extra_configs`` are merged into the logged run config (e.g. recipe
+    ``hardware`` / ``schedule`` / ``wandb`` segments).
 
     Always writes ``run_config.json`` before training and ``run_summary.json``
     when training stops (completed, interrupted, or failed) under
@@ -270,11 +269,19 @@ def pretrain(
     model_size = count_model_params(model, vocab_size=tokenizer.vocab_size)
     train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
 
+    log_configs: dict[str, Any] = {
+        "data": config.data,
+        "arch": config.arch,
+        "trainer": config.trainer,
+    }
+    if extra_configs:
+        log_configs.update(dict(extra_configs))
+
     config_payload = build_run_config_payload(
         run_label=run_label,
         run_name=config.trainer.run_name,
         title=title,
-        configs={"data": config.data, "arch": config.arch, "trainer": config.trainer},
+        configs=log_configs,
         accelerator=accel,
         model_size=model_size,
         tokens_per_step=tokens_per_step,
@@ -294,7 +301,7 @@ def pretrain(
     run_config = build_run_config(
         run_label=run_label,
         env=env,
-        configs={"data": config.data, "arch": config.arch, "trainer": config.trainer},
+        configs=log_configs,
         prefer_bf16=config.trainer.prefer_bf16,
         prefer_fp16=config.trainer.prefer_fp16,
         accelerator=accel,

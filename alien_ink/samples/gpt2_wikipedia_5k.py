@@ -1,57 +1,91 @@
 #!/usr/bin/env python
 """Pretrain GPT-2 from scratch for 5k steps on streamed English Wikipedia.
 
-Sized for Mist (local RTX 3070, ~8 GB). W&B entity / project / name are set
-explicitly below — change them before running.
+Sized for Mist (local RTX 3070, ~8 GB). Every recipe field is spelled out
+below for reproducibility — change values in place, do not rely on module
+defaults.
 
   python -m alien_ink.samples.gpt2_wikipedia_5k
 """
 
 from __future__ import annotations
 
-from pathlib import Path
+from alien_ink.hf.ds import HubTextSource, PretrainDataConfig
+from alien_ink.hf.model import CausalLmArchConfig
+from alien_ink.hf.recipe import (
+    HardwareConfig,
+    Recipe,
+    ScheduleConfig,
+    WandbConfig,
+)
 
-from alien_ink.hf.ds import wikipedia_english
-from alien_ink.hf.model import gpt2_arch
-from alien_ink.hf.pretrain import PretrainConfig, pretrain
-from alien_ink.hf.trainer import CausalLmTrainerConfig
-
-# Explicit W&B identity (required when use_wandb=True; no package defaults).
-WANDB_ENTITY = "logbook"
-WANDB_PROJECT = "ink-explore"
-WANDB_NAME = "gpt2-wikipedia-5k-mist"
-
-MAX_STEPS = 5_000
-OUTPUT_DIR = Path.cwd() / "output" / WANDB_NAME
+RECIPE = Recipe(
+    run_name="gpt2-wikipedia-5k-mist",
+    title="GPT-2 from scratch on English Wikipedia (5k steps)",
+    data=PretrainDataConfig(
+        source=HubTextSource(
+            dataset="wikimedia/wikipedia",
+            name="20231101.en",
+            split="train",
+            text_column="text",
+        ),
+        eval_source=None,
+        mode="stream",
+        max_eval_samples=1_000,
+        max_train_samples=None,
+        stream_shuffle_buffer=10_000,
+        block_size=1024,
+        tokenizer_num_proc=4,
+        seed=101,
+    ),
+    model=CausalLmArchConfig(
+        family="gpt2",
+        tokenizer_name="gpt2",
+        n_positions=1024,
+        n_embd=768,
+        n_layer=12,
+        n_head=12,
+        head_dim=None,
+        intermediate_size=None,
+        use_cache=False,
+    ),
+    hardware=HardwareConfig(
+        label="mist-rtx-3070",
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=2,
+        gradient_accumulation_steps=16,
+        dataloader_num_workers=2,
+        prefer_bf16=True,
+        prefer_fp16=True,
+        gradient_checkpointing=True,
+    ),
+    wandb=WandbConfig(
+        entity="logbook",
+        project="ink-explore",
+        name="gpt2-wikipedia-5k-mist",
+        enabled=True,
+    ),
+    schedule=ScheduleConfig(
+        max_steps=5_000,
+        num_train_epochs=3.0,
+        learning_rate=6e-4,
+        warmup_steps=200,
+        weight_decay=0.1,
+        max_grad_norm=1.0,
+        lr_scheduler_type="cosine",
+        seed=101,
+        logging_steps=5,
+        eval_steps=100,
+        save_steps=100,
+        save_total_limit=2,
+        early_stopping_patience=0,
+    ),
+    trainer_overrides={},
+)
 
 
 def main() -> None:
-    config = PretrainConfig(
-        data=wikipedia_english(mode="stream"),
-        arch=gpt2_arch(),
-        trainer=CausalLmTrainerConfig(
-            output_dir=OUTPUT_DIR,
-            run_name=WANDB_NAME,
-            max_steps=MAX_STEPS,
-            # Mist RTX 3070 (~8 GB): microbatch 2 × accum 16 = effective 32
-            per_device_train_batch_size=2,
-            per_device_eval_batch_size=2,
-            gradient_accumulation_steps=16,
-            warmup_steps=min(200, MAX_STEPS // 10),
-            logging_steps=max(1, MAX_STEPS // 100),
-            eval_steps=max(1, MAX_STEPS // 10),
-            save_steps=max(1, MAX_STEPS // 10),
-        ),
-    )
-    pretrain(
-        config,
-        title="GPT-2 from scratch on English Wikipedia (5k steps)",
-        run_label="sample",
-        wandb_entity=WANDB_ENTITY,
-        wandb_project=WANDB_PROJECT,
-        wandb_name=WANDB_NAME,
-        use_wandb=True,
-    )
+    RECIPE.train()
 
 
 if __name__ == "__main__":

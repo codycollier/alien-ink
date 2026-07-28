@@ -15,7 +15,10 @@ cp -n .env.example .env   # set HF_TOKEN and WANDB_API_KEY
 
 ### Samples
 
-W&B entity / project / name are set explicitly in each sample (no package defaults).
+Each sample is a fully explicit `Recipe` (every data / model / hardware /
+wandb / schedule field spelled out) plus a thin `main`. W&B identity is set
+on the recipe (no package defaults). Swap or retune `hardware` when moving
+GPUs; clone a sample when preserving an ablation over time.
 
 ```bash
 python -m alien_ink.samples.gpt2_wikipedia_5k   # GPT-2, 5k steps, Wikipedia stream
@@ -24,3 +27,11 @@ python -m alien_ink.samples.gemma_c4_50k        # Gemma (Mist-sized), 50k steps,
 ```
 
 Or background one with `./bin/pretrain_mist.sh`.
+
+```python
+from alien_ink.samples.gpt2_wikitext_5k import RECIPE
+
+# One-off tweaks via composition; for lasting ablations, copy a sample module
+RECIPE.with_schedule(learning_rate=3e-4).variant(run_name="wt-lr3e-4").train()
+RECIPE.with_hardware(per_device_train_batch_size=4, gradient_accumulation_steps=8).train()
+```
