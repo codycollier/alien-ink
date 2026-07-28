@@ -246,7 +246,7 @@ batch/accum differ by profile, so compare utilization (MFU) carefully.
 ### Tests
 
 ```bash
-UV_TORCH_BACKEND=cu126 uv pip install -e ".[hf,test]"
+uv pip install -e ".[hf,test]"
 pytest
 ```
 

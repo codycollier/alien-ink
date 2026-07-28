@@ -24,8 +24,7 @@ source .venv/bin/activate
 echo "-------------------------------------------------------------------------"
 echo ":: Installing alien-ink and depedencies"
 echo "-------------------------------------------------------------------------"
-# PyPI torch is CUDA 13.0; use CUDA 12.6 wheels for older NVIDIA drivers.
-UV_TORCH_BACKEND=cu126 uv pip install -e ".[hf]"
+uv pip install -e ".[hf]"
 
 # Instruction
 echo "-------------------------------------------------------------------------"
