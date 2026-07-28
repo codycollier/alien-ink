@@ -23,6 +23,10 @@ def _fake_data(**_kwargs) -> PretrainDataConfig:
     return PretrainDataConfig(source=HubTextSource(dataset="Salesforce/wikitext", name="x"))
 
 
+def _pin_local(monkeypatch):
+    monkeypatch.setattr("alien_ink.exp.recipe.get_profile", lambda profile=None: LOCAL_RTX)
+
+
 def test_scaled_trainer_steps_matches_reference_defaults():
     assert scaled_trainer_steps(50_000) == {
         "logging_steps": 50,
@@ -53,10 +57,7 @@ def test_trainer_length_kwargs_epoch_mode():
 
 
 def test_flight_check_run_name_appends_suffix(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
+    _pin_local(monkeypatch)
     exp = Gpt2PretrainExperiment(
         run_name="gpt2-pretrain-wikitext",
         title="t",
@@ -67,30 +68,24 @@ def test_flight_check_run_name_appends_suffix(monkeypatch):
     assert exp.flight_check_run_name() == "gpt2-pretrain-wikitext-flight-check-gpu"
 
 
-def test_resolved_run_name_tpu_suffix(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: COLAB_TPU_V6E1,
-    )
+def test_resolved_run_name_tpu_suffix():
     exp = Gpt2PretrainExperiment(
         run_name="gpt2-pretrain-wpe-subset",
         title="t",
         spot_check_title="s",
         data_factory=_fake_data,
         module_description="d",
+        profile=COLAB_TPU_V6E1,
     )
     assert exp.resolved_run_name() == "gpt2-pretrain-wpe-subset-tpu"
     assert exp.resolved_run_name(wandb_name="custom") == "custom-tpu"
 
 
 def test_subset_experiment_defaults(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
+    _pin_local(monkeypatch)
     from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import EXPERIMENT
 
-    cfg = EXPERIMENT.base_config()
+    cfg = EXPERIMENT.config()
     assert cfg.data.max_train_samples == 20_000
     assert cfg.data.max_eval_samples == 1_000
     assert cfg.trainer.max_steps == -1
@@ -104,11 +99,7 @@ def test_subset_experiment_defaults(monkeypatch):
     assert cfg.trainer.gradient_accumulation_steps == 16
 
 
-def test_base_config_colab_g4_batch(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: COLAB_G4,
-    )
+def test_config_colab_g4_batch():
     exp = Gpt2PretrainExperiment(
         run_name="run-a",
         title="t",
@@ -116,17 +107,13 @@ def test_base_config_colab_g4_batch(monkeypatch):
         data_factory=_fake_data,
         module_description="d",
     )
-    cfg = exp.base_config()
+    cfg = exp.config(COLAB_G4)
     assert cfg.trainer.per_device_train_batch_size == 64
     assert cfg.trainer.gradient_accumulation_steps == 1
     assert cfg.trainer.run_name == "run-a-gpu"
 
 
-def test_base_config_tpu_v6e1_batch(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: COLAB_TPU_V6E1,
-    )
+def test_config_tpu_v6e1_batch():
     exp = Gpt2PretrainExperiment(
         run_name="run-a",
         title="t",
@@ -134,37 +121,56 @@ def test_base_config_tpu_v6e1_batch(monkeypatch):
         data_factory=_fake_data,
         module_description="d",
     )
-    cfg = exp.base_config()
+    cfg = exp.config("colab-tpu-v6e1")
     assert cfg.trainer.per_device_train_batch_size == 32
     assert cfg.trainer.gradient_accumulation_steps == 1
     assert cfg.trainer.run_name == "run-a-tpu"
 
 
-def test_streamed_experiment_keeps_reference_cadence(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
+def test_config_accepts_profile_name():
+    exp = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
     )
+    cfg = exp.config("colab-g4")
+    assert cfg.trainer.per_device_train_batch_size == 64
+    assert cfg.trainer.run_name == "run-a-gpu"
+
+
+def test_with_profile_pins_hardware():
+    exp = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
+    ).with_profile("mist-rtx-3070")
+    cfg = exp.config()
+    assert cfg.trainer.per_device_train_batch_size == 2
+    assert cfg.trainer.gradient_accumulation_steps == 16
+
+
+def test_streamed_experiment_keeps_reference_cadence(monkeypatch):
+    _pin_local(monkeypatch)
     from alien_ink.exp.gpt2_pretrain_wikitext import EXPERIMENT
 
-    cfg = EXPERIMENT.base_config()
+    cfg = EXPERIMENT.config()
     assert cfg.trainer.max_steps == 50_000
     assert cfg.trainer.logging_steps == 50
     assert cfg.trainer.eval_steps == 1_000
     assert cfg.trainer.save_steps == 1_000
 
 
-def test_train_rescales_cadence_when_max_steps_overridden(monkeypatch):
+def test_variant_max_steps_rescales_cadence(monkeypatch):
     captured: dict = {}
 
     def fake_pretrain(cfg, **kwargs):
         captured["trainer"] = cfg.trainer
         captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
     monkeypatch.setattr("alien_ink.exp.recipe.pretrain_gpt2", fake_pretrain)
     exp = Gpt2PretrainExperiment(
         run_name="run-a",
@@ -174,13 +180,41 @@ def test_train_rescales_cadence_when_max_steps_overridden(monkeypatch):
         module_description="d",
         max_steps=2_000,
         warmup_steps=200,
+        profile=LOCAL_RTX,
     )
-    exp.train(use_wandb=False, max_steps=5_000)
+    exp.variant(max_steps=5_000).train(use_wandb=False)
     assert captured["trainer"].max_steps == 5_000
     assert captured["trainer"].logging_steps == 5
     assert captured["trainer"].eval_steps == 100
     assert captured["trainer"].save_steps == 100
     assert captured["kwargs"]["wandb_name"] == "run-a-gpu"
+
+
+def test_override_splits_recipe_and_trainer_fields():
+    exp = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
+        profile=LOCAL_RTX,
+    )
+    out = exp.override(
+        max_steps=1_000,
+        learning_rate=3e-4,
+        per_device_train_batch_size=1,
+        gradient_accumulation_steps=32,
+    )
+    assert out.max_steps == 1_000
+    assert out.learning_rate == 3e-4
+    assert out.trainer_overrides["per_device_train_batch_size"] == 1
+    assert out.trainer_overrides["gradient_accumulation_steps"] == 32
+    cfg = out.config()
+    assert cfg.trainer.max_steps == 1_000
+    assert cfg.trainer.learning_rate == 3e-4
+    assert cfg.trainer.logging_steps == 1
+    assert cfg.trainer.per_device_train_batch_size == 1
+    assert cfg.trainer.gradient_accumulation_steps == 32
 
 
 def test_train_passes_tpu_num_processes_from_profile(monkeypatch):
@@ -189,10 +223,6 @@ def test_train_passes_tpu_num_processes_from_profile(monkeypatch):
     def fake_pretrain(cfg, **kwargs):
         captured["kwargs"] = kwargs
 
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: COLAB_TPU_V6E1,
-    )
     monkeypatch.setattr("alien_ink.exp.recipe.pretrain_gpt2", fake_pretrain)
     exp = Gpt2PretrainExperiment(
         run_name="run-a",
@@ -200,35 +230,37 @@ def test_train_passes_tpu_num_processes_from_profile(monkeypatch):
         spot_check_title="s",
         data_factory=_fake_data,
         module_description="d",
+        profile=COLAB_TPU_V6E1,
     )
     exp.train(use_wandb=False)
     assert captured["kwargs"]["tpu_num_processes"] == 1
 
 
-def test_train_keeps_explicit_cadence_overrides(monkeypatch):
+def test_train_keeps_explicit_cadence_via_with_trainer(monkeypatch):
     captured: dict = {}
 
     def fake_pretrain(cfg, **_kwargs):
         captured["trainer"] = cfg.trainer
 
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
     monkeypatch.setattr("alien_ink.exp.recipe.pretrain_gpt2", fake_pretrain)
-    exp = Gpt2PretrainExperiment(
-        run_name="run-a",
-        title="t",
-        spot_check_title="s",
-        data_factory=_fake_data,
-        module_description="d",
-        max_steps=2_000,
-        warmup_steps=200,
+    exp = (
+        Gpt2PretrainExperiment(
+            run_name="run-a",
+            title="t",
+            spot_check_title="s",
+            data_factory=_fake_data,
+            module_description="d",
+            max_steps=2_000,
+            warmup_steps=200,
+            profile=LOCAL_RTX,
+        )
+        .variant(max_steps=5_000)
+        .with_trainer(eval_steps=250)
     )
-    exp.train(use_wandb=False, max_steps=5_000, eval_steps=250)
+    exp.train(use_wandb=False)
     assert captured["trainer"].max_steps == 5_000
     assert captured["trainer"].eval_steps == 250
-    # Unspecified cadence fields still follow the new max_steps.
+    # Unspecified cadence fields still follow the new max_steps from variant().
     assert captured["trainer"].logging_steps == 5
     assert captured["trainer"].save_steps == 100
 
@@ -247,10 +279,6 @@ def test_flight_check_shrinks_materialized_train(monkeypatch):
         captured["data"] = cfg.data
         captured["trainer"] = cfg.trainer
 
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
     monkeypatch.setattr("alien_ink.exp.recipe.pretrain_gpt2", fake_pretrain)
     exp = Gpt2PretrainExperiment(
         run_name="subset-run",
@@ -260,6 +288,7 @@ def test_flight_check_shrinks_materialized_train(monkeypatch):
         module_description="d",
         max_steps=2_000,
         warmup_steps=200,
+        profile=LOCAL_RTX,
     )
     exp.train_flight_check(use_wandb=False)
     assert captured["data"].max_train_samples == 50
@@ -270,20 +299,17 @@ def test_flight_check_shrinks_materialized_train(monkeypatch):
 
 def test_paths_resolve_from_cwd(tmp_path: Path, monkeypatch):
     monkeypatch.chdir(tmp_path)
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
     exp = Gpt2PretrainExperiment(
         run_name="run-a",
         title="t",
         spot_check_title="s",
         data_factory=_fake_data,
         module_description="d",
+        profile=LOCAL_RTX,
     )
     assert exp.output_root() == tmp_path / "output"
     assert exp.env_file() == tmp_path / ".env"
-    cfg = exp.base_config()
+    cfg = exp.config()
     assert cfg.trainer.output_dir == tmp_path / "output" / "run-a-gpu"
     assert cfg.trainer.run_name == "run-a-gpu"
 
@@ -369,6 +395,8 @@ def test_parser_includes_new_flags():
         [
             "--train",
             "--no-wandb",
+            "--profile",
+            "colab-g4",
             "--max-steps",
             "-1",
             "--num-train-epochs",
@@ -377,33 +405,31 @@ def test_parser_includes_new_flags():
         ]
     )
     assert args.no_wandb is True
+    assert args.profile == "colab-g4"
     assert args.max_steps == -1
     assert args.num_train_epochs == 3
     assert args.resume_from_checkpoint is True
 
 
-def test_variant_composes_arch_data_trainer(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
+def test_variant_composes_arch_data_trainer():
     base = Gpt2PretrainExperiment(
         run_name="run-a",
         title="t",
         spot_check_title="s",
         data_factory=_fake_data,
         module_description="d",
+        profile=LOCAL_RTX,
     )
     variant = (
         base.with_arch(n_layer=6)
         .with_data(block_size=512)
-        .with_trainer_knobs(weight_decay=0.05)
+        .with_trainer(weight_decay=0.05)
         .variant(run_name="run-a-l6", learning_rate=3e-4)
     )
     assert variant is not base
     assert base.arch.n_layer == 12
     assert base.learning_rate == 6e-4
-    cfg = variant.base_config()
+    cfg = variant.config()
     assert cfg.arch.n_layer == 6
     assert cfg.data.block_size == 512
     assert cfg.trainer.weight_decay == 0.05
@@ -411,11 +437,7 @@ def test_variant_composes_arch_data_trainer(monkeypatch):
     assert cfg.trainer.run_name == "run-a-l6-gpu"
 
 
-def test_base_config_uses_recipe_learning_rate(monkeypatch):
-    monkeypatch.setattr(
-        "alien_ink.exp.recipe.resolve_accelerator_profile",
-        lambda: LOCAL_RTX,
-    )
+def test_config_uses_recipe_learning_rate():
     exp = Gpt2PretrainExperiment(
         run_name="run-a",
         title="t",
@@ -423,5 +445,18 @@ def test_base_config_uses_recipe_learning_rate(monkeypatch):
         data_factory=_fake_data,
         module_description="d",
         learning_rate=1e-3,
+        profile=LOCAL_RTX,
     )
-    assert exp.base_config().trainer.learning_rate == 1e-3
+    assert exp.config().trainer.learning_rate == 1e-3
+
+
+def test_base_config_alias_matches_config():
+    exp = Gpt2PretrainExperiment(
+        run_name="run-a",
+        title="t",
+        spot_check_title="s",
+        data_factory=_fake_data,
+        module_description="d",
+        profile=LOCAL_RTX,
+    )
+    assert exp.base_config().trainer.run_name == exp.config().trainer.run_name

@@ -3,6 +3,17 @@
 
 Model training configurations and recipes are `experiments`.
 
+Three explicit layers:
+
+| Layer | Type | Job |
+|---|---|---|
+| **Recipe** | `Gpt2PretrainExperiment` | *What* to train (corpus, arch, schedule). Compose ablations here. |
+| **Profile** | `AcceleratorProfile` via `get_profile(...)` | *Where* (batch / accum / run-name suffix). |
+| **Config** | `Gpt2PretrainConfig` from `EXPERIMENT.config(...)` | Fully resolved snapshot ready to run. |
+
+One compose vocabulary on both recipe and config: `with_arch` / `with_data` / `with_trainer`.
+Ablate on the recipe, then call `train(...)` with runtime kwargs only (W&B, resume, profile, TPU).
+
 
 ## Experiment options
 
@@ -30,7 +41,7 @@ from alien_ink.exp.gpt2_pretrain_wikitext_subset import EXPERIMENT
 ablations = [
     EXPERIMENT.variant(run_name="wt-sub-lr3e4", learning_rate=3e-4),
     EXPERIMENT.with_arch(n_layer=6).variant(run_name="wt-sub-l6"),
-    EXPERIMENT.with_data(block_size=512).with_trainer_knobs(weight_decay=0.05),
+    EXPERIMENT.with_data(block_size=512).with_trainer(weight_decay=0.05),
 ]
 for exp in ablations:
     exp.train(use_wandb=True)
@@ -39,14 +50,28 @@ for exp in ablations:
 
 ## Training machine profiles (batch + run names)
 
-Recipes pick an `AcceleratorProfile` from `alien_ink.hf.hardware` based on the
-live device. Multiples are relative to the Mist **RTX 3070** baseline
-(8 GB, 40.6 TFLOPS FP16). Cloud profiles prefer large microbatches and
-`gradient_accumulation_steps=1` so HBM/VRAM stays busy.
+Pick a profile with **one** entry point — `alien_ink.hf.hardware.get_profile`:
+
+```python
+from alien_ink.hf.hardware import get_profile, COLAB_G4
+
+get_profile()                 # detect from the live device
+get_profile("colab-g4")       # named registry entry
+get_profile(COLAB_G4)         # already an AcceleratorProfile
+
+# Pin on the recipe, or pass at train/config time:
+EXPERIMENT.with_profile("colab-g4").train(use_wandb=True)
+EXPERIMENT.train(profile="colab-g4", use_wandb=True)
+cfg = EXPERIMENT.config(profile="mist-rtx-3070")
+```
+
+Multiples are relative to the Mist **RTX 3070** baseline (8 GB, 40.6 TFLOPS FP16).
+Cloud profiles prefer large microbatches and `gradient_accumulation_steps=1`
+so HBM/VRAM stays busy.
 
 | Profile | Hardware | Mem | Peak | vs 3070 | Mem× | Train batch / accum | Eff. batch | Suffix |
 |---|---|---|---|---|---|---|---|---|
-| `local-rtx` | RTX 3070 (Mist) | 8 GB | 40.6 TFLOPS FP16 | 1.0× | 1× | `2` / `16` | 32 | `-gpu` |
+| `local-rtx` / `mist-rtx-3070` | RTX 3070 (Mist) | 8 GB | 40.6 TFLOPS FP16 | 1.0× | 1× | `2` / `16` | 32 | `-gpu` |
 | `colab-g4` | **G4** RTX PRO 6000 Blackwell | 96 GB | 500 TFLOPS FP16 | 12.3× | 12× | `64` / `1` | 64 | `-gpu` |
 | `colab-a100-40gb` | **A100** 40 GB (Ampere) | 40 GB | 312 TFLOPS FP16 | 7.7× | 5× | `32` / `1` | 32 | `-gpu` |
 | `colab-tpu-v6e1` | **TPU v6e-1** Trillium (1-chip) | 32 GB | 918 TFLOPS BF16 | 22.6× | 4× | `32` / `1` | 32 | `-tpu` |
@@ -60,7 +85,7 @@ Scaling notes:
 - **TPU v6e-1** stays at 32: batch 64 OOMs GPT-2 @ `block_size=1024` (~51G HBM).
 - **L4** uses microbatch 16 + accum 2: batch 32 OOMs on ~22 GB usable VRAM (activation temps for 32 need ~25G).
 - Flight checks stay tiny (`batch=1`, `accum=1`, short `block_size`) and use `{run_name}-flight-check-{gpu|tpu}`.
-- Override batch/accum anytime via kwargs or CLI (`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
+- Override batch/accum by composing the recipe (`with_trainer(...)`) or CLI (`--per-device-train-batch-size`, `--gradient-accumulation-steps`).
 
 
 
@@ -89,13 +114,14 @@ print(alien_ink.device.introspect())
 
 ```python
 # run a training experiment
-from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import train
+from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import EXPERIMENT
 
-train(
+EXPERIMENT.train(
     use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
     wandb_name="gpt2-pretrain-wpe-subset-nb-gpu",
+    # profile="colab-g4",  # optional pin; default detects the live device
 )
 ```
 
@@ -120,13 +146,14 @@ print(alien_ink.device.introspect())
 
 ```python
 # Run a training experiment
-from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import train
+from alien_ink.exp.gpt2_pretrain_wikipedia_english_subset import EXPERIMENT
 
-train(
+EXPERIMENT.train(
     use_wandb=True,
     wandb_entity="logbook",
     wandb_project="ink-explore",
     wandb_name="gpt2-pretrain-wpe-subset-nb-tpu",
+    # profile="colab-tpu-v6e1",
     # tpu_num_processes=1,  # default for v6e-1; set N for multi-chip
     # tpu_launch=False,     # skip notebook_launcher (debug / already launched)
 )
@@ -213,17 +240,33 @@ python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check --no-wandb
 python -m alien_ink.exp.gpt2_pretrain_wikipedia_english_subset --flight-check --no-wandb
 ```
 
-### Training overrides / resume
+### Training overrides / resume / profile
 
-Optional CLI knobs for `--train` and `--flight-check`:
+CLI flags compose the recipe first (`override` / `with_profile`), then call
+`train` — same path as notebooks:
 
 ```bash
 python -m alien_ink.exp.gpt2_pretrain_wikitext --train \
+  --profile mist-rtx-3070 \
   --max-steps 1000 \
   --learning-rate 3e-4 \
   --per-device-train-batch-size 1 \
   --gradient-accumulation-steps 32 \
   --resume-from-checkpoint
+```
+
+Notebook equivalent:
+
+```python
+EXPERIMENT.override(
+    max_steps=1000,
+    learning_rate=3e-4,
+    per_device_train_batch_size=1,
+    gradient_accumulation_steps=32,
+).with_profile("mist-rtx-3070").train(
+    use_wandb=True,
+    resume_from_checkpoint=True,
+)
 ```
 
 `--resume-from-checkpoint` alone auto-picks the latest checkpoint under the run

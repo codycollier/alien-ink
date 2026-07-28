@@ -1,28 +1,29 @@
 """Shared GPT-2 pretrain experiment recipe (config + CLI + flight/spot checks).
 
-Composition model
------------------
-A shipped experiment module binds a corpus ``data_factory`` into a frozen
-:class:`Gpt2PretrainExperiment` (labels + length/LR/arch knobs). Configs are
-assembled as::
+Three layers — one job each
+---------------------------
+**Recipe** (:class:`Gpt2PretrainExperiment`) — *what* to train: corpus, arch,
+schedule, optional pinned profile. Compose ablations here only::
 
-    Gpt2PretrainConfig(
-        data    = data_factory()  ⊕ data_overrides,
-        arch    = experiment.arch,
-        trainer = defaults ⊕ hardware batch ⊕ length/cadence ⊕ trainer_overrides,
-    )
+    EXPERIMENT.with_arch(n_layer=6).variant(run_name="wt-sub-l6")
+    EXPERIMENT.with_data(block_size=512).with_trainer(weight_decay=0.05)
 
-Ablations grow by composing variants — not by cloning modules::
+**Profile** (:class:`~alien_ink.hf.hardware.AcceleratorProfile`) — *where*:
+batch / accum / run-name suffix. Always via :func:`~alien_ink.hf.hardware.get_profile`::
+
+    get_profile()            # detect
+    get_profile("colab-g4")  # named
+    get_profile(COLAB_G4)    # object
+
+**Config** (:class:`~alien_ink.hf.pretrain.Gpt2PretrainConfig`) — fully resolved
+snapshot from :meth:`Gpt2PretrainExperiment.config`. Ready for
+:func:`~alien_ink.hf.pretrain.pretrain_gpt2`.
+
+Runs stay thin (notebook-style)::
 
     from alien_ink.exp.gpt2_pretrain_wikitext_subset import EXPERIMENT
 
-    runs = [
-        EXPERIMENT.variant(run_name="wt-sub-lr3e4", learning_rate=3e-4),
-        EXPERIMENT.with_arch(n_layer=6).variant(run_name="wt-sub-l6"),
-        EXPERIMENT.with_data(block_size=512).with_trainer_knobs(weight_decay=0.05),
-    ]
-    for exp in runs:
-        exp.train(use_wandb=True)
+    EXPERIMENT.train(use_wandb=True, profile="colab-g4")
 """
 
 from __future__ import annotations
@@ -30,7 +31,7 @@ from __future__ import annotations
 import argparse
 import sys
 from collections.abc import Callable, Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any
 
@@ -44,12 +45,12 @@ from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.gen import SpotCheckConfig, run_spot_check
 from alien_ink.hf.hardware import (
     AcceleratorProfile,
-    resolve_accelerator_profile,
+    get_profile,
     trainer_overrides_for_profile,
     with_accelerator_suffix,
 )
 from alien_ink.hf.model import Gpt2ArchConfig
-from alien_ink.hf.pretrain import Gpt2PretrainConfig, pretrain_gpt2, with_data, with_trainer
+from alien_ink.hf.pretrain import Gpt2PretrainConfig, pretrain_gpt2
 from alien_ink.hf.trainer import CausalLmTrainerConfig
 from alien_ink.log import detail, get_logger
 
@@ -82,6 +83,22 @@ _FLIGHT_DATA = {
     "block_size": 128,
 }
 _FLIGHT_MAX_TRAIN_SAMPLES = 50
+
+# Recipe-level fields that CLI / override bags may set via :meth:`override`.
+# Everything else is treated as a trainer knob.
+_RECIPE_OVERRIDE_FIELDS = frozenset(
+    {
+        "run_name",
+        "title",
+        "spot_check_title",
+        "module_description",
+        "max_steps",
+        "num_train_epochs",
+        "warmup_steps",
+        "learning_rate",
+        "profile",
+    }
+)
 
 
 def scaled_trainer_steps(max_steps: int) -> dict[str, int]:
@@ -119,38 +136,19 @@ def trainer_length_kwargs(
     }
 
 
-def apply_runtime_trainer_overrides(
-    cfg: Gpt2PretrainConfig,
-    trainer_overrides: Mapping[str, Any],
-) -> Gpt2PretrainConfig:
-    """Apply call-time trainer kwargs; auto-rescale cadence when ``max_steps`` changes.
-
-    Cadence fields present in ``trainer_overrides`` are left alone; unspecified
-    cadence keys follow :func:`scaled_trainer_steps` for the new step budget.
-    """
-    if not trainer_overrides:
-        return cfg
-    cfg = with_trainer(cfg, **trainer_overrides)
-    if "max_steps" not in trainer_overrides or cfg.trainer.max_steps <= 0:
-        return cfg
-    auto = {
-        key: value
-        for key, value in scaled_trainer_steps(cfg.trainer.max_steps).items()
-        if key not in trainer_overrides
-    }
-    return with_trainer(cfg, **auto) if auto else cfg
-
-
 @dataclass(frozen=True)
 class Gpt2PretrainExperiment:
     """Corpus recipe: labels + data factory + length/LR/arch knobs.
 
     Paths resolve from cwd at call time. Compose ablations with
-    :meth:`variant`, :meth:`with_arch`, :meth:`with_data`, and
-    :meth:`with_trainer_knobs` instead of cloning modules.
+    :meth:`variant`, :meth:`with_arch`, :meth:`with_data`, :meth:`with_trainer`,
+    and :meth:`with_profile` — then call :meth:`train` (runtime kwargs only).
 
     Use ``max_steps >= 1`` for streamed / step-capped runs, or ``max_steps=-1``
     with ``num_train_epochs`` for finite materialized subsets.
+
+    Pin hardware with ``profile=`` (name or :class:`AcceleratorProfile`); leave
+    ``None`` to detect at config/train time via :func:`get_profile`.
     """
 
     run_name: str
@@ -166,6 +164,8 @@ class Gpt2PretrainExperiment:
     # Applied after data_factory() / base trainer assembly (ablation knobs).
     data_overrides: Mapping[str, Any] = field(default_factory=dict)
     trainer_overrides: Mapping[str, Any] = field(default_factory=dict)
+    # Optional pinned profile; None → detect when building config / training.
+    profile: AcceleratorProfile | str | None = None
 
     def variant(self, **changes: Any) -> Gpt2PretrainExperiment:
         """Return a copy with selected recipe fields replaced."""
@@ -182,12 +182,45 @@ class Gpt2PretrainExperiment:
             data_overrides={**dict(self.data_overrides), **data_overrides},
         )
 
-    def with_trainer_knobs(self, **trainer_overrides: Any) -> Gpt2PretrainExperiment:
+    def with_trainer(self, **trainer_overrides: Any) -> Gpt2PretrainExperiment:
         """Return a copy merging extra :class:`CausalLmTrainerConfig` overrides."""
         return replace(
             self,
             trainer_overrides={**dict(self.trainer_overrides), **trainer_overrides},
         )
+
+    def with_profile(
+        self,
+        profile: AcceleratorProfile | str | None,
+    ) -> Gpt2PretrainExperiment:
+        """Return a copy with a pinned (or cleared) hardware profile."""
+        return replace(self, profile=profile)
+
+    def override(self, **changes: Any) -> Gpt2PretrainExperiment:
+        """Apply a bag of overrides — recipe fields vs trainer knobs, one path.
+
+        Keys in the recipe dataclass (``max_steps``, ``learning_rate``,
+        ``profile``, …) go through :meth:`variant`. Everything else merges via
+        :meth:`with_trainer`. Prefer explicit ``variant`` / ``with_*`` in
+        notebooks; this helper exists for CLI flag bags.
+        """
+        recipe_changes = {
+            key: value
+            for key, value in changes.items()
+            if key in _RECIPE_OVERRIDE_FIELDS
+        }
+        trainer_changes = {
+            key: value
+            for key, value in changes.items()
+            if key not in _RECIPE_OVERRIDE_FIELDS
+        }
+        unknown_recipe = set(recipe_changes) - {f.name for f in fields(self)}
+        if unknown_recipe:
+            raise TypeError(
+                f"Unknown recipe override field(s): {sorted(unknown_recipe)}"
+            )
+        exp = self.variant(**recipe_changes) if recipe_changes else self
+        return exp.with_trainer(**trainer_changes) if trainer_changes else exp
 
     def workdir(self) -> Path:
         return Path.cwd()
@@ -198,23 +231,35 @@ class Gpt2PretrainExperiment:
     def env_file(self) -> Path:
         return self.workdir() / ".env"
 
+    def resolve_profile(
+        self,
+        profile: AcceleratorProfile | str | None = None,
+    ) -> AcceleratorProfile:
+        """Resolve the effective profile (call arg → pinned → detect)."""
+        if profile is not None:
+            return get_profile(profile)
+        return get_profile(self.profile)
+
     def resolved_run_name(
         self,
         *,
-        profile: AcceleratorProfile | None = None,
+        profile: AcceleratorProfile | str | None = None,
         wandb_name: str | None = None,
         flight_check: bool = False,
     ) -> str:
         """Run / W&B name with ``-gpu`` / ``-tpu`` (or ``-cpu``) suffix."""
-        profile = profile or resolve_accelerator_profile()
+        resolved = self.resolve_profile(profile)
         base = wandb_name or self.run_name
         if flight_check and wandb_name is None:
             base = f"{self.run_name}-flight-check"
         elif flight_check and wandb_name is not None and "flight-check" not in wandb_name:
             base = f"{wandb_name}-flight-check"
-        return with_accelerator_suffix(base, profile.kind)
+        return with_accelerator_suffix(base, resolved.kind)
 
-    def flight_check_run_name(self, profile: AcceleratorProfile | None = None) -> str:
+    def flight_check_run_name(
+        self,
+        profile: AcceleratorProfile | str | None = None,
+    ) -> str:
         return self.resolved_run_name(profile=profile, flight_check=True)
 
     def checkpoint_output_dirs(self) -> list[Path]:
@@ -242,22 +287,31 @@ class Gpt2PretrainExperiment:
             data = replace(data, **self.data_overrides)
         return data
 
-    def base_config(
+    def config(
         self,
-        profile: AcceleratorProfile | None = None,
+        profile: AcceleratorProfile | str | None = None,
         *,
         wandb_name: str | None = None,
+        flight_check: bool = False,
     ) -> Gpt2PretrainConfig:
-        """Full pretrain defaults with accelerator-aware batch / run name."""
-        profile = profile or resolve_accelerator_profile()
-        run_name = self.resolved_run_name(profile=profile, wandb_name=wandb_name)
+        """Build the fully resolved pretrain config for ``profile``.
+
+        This is the only config-assembly entry point. Pass ``flight_check=True``
+        for the tiny smoke recipe (short blocks / steps / batches).
+        """
+        resolved = self.resolve_profile(profile)
+        run_name = self.resolved_run_name(
+            profile=resolved,
+            wandb_name=wandb_name,
+            flight_check=flight_check,
+        )
         detail(
-            f"accelerator profile: {profile.label} ({profile.hardware}) "
-            f"batch={profile.per_device_train_batch_size} "
-            f"accum={profile.gradient_accumulation_steps} "
-            f"eff={profile.effective_batch_size} "
-            f"mem×{profile.memory_multiple:g} "
-            f"compute×{profile.vs_rtx_3070:g} "
+            f"accelerator profile: {resolved.label} ({resolved.hardware}) "
+            f"batch={resolved.per_device_train_batch_size} "
+            f"accum={resolved.gradient_accumulation_steps} "
+            f"eff={resolved.effective_batch_size} "
+            f"mem×{resolved.memory_multiple:g} "
+            f"compute×{resolved.vs_rtx_3070:g} "
             f"run_name={run_name}",
             logger=log,
         )
@@ -266,7 +320,7 @@ class Gpt2PretrainExperiment:
             learning_rate=self.learning_rate,
             warmup_steps=self.warmup_steps,
             run_name=run_name,
-            **trainer_overrides_for_profile(profile),
+            **trainer_overrides_for_profile(resolved),
             **trainer_length_kwargs(
                 max_steps=self.max_steps,
                 num_train_epochs=self.num_train_epochs,
@@ -274,38 +328,39 @@ class Gpt2PretrainExperiment:
         )
         if self.trainer_overrides:
             trainer = replace(trainer, **self.trainer_overrides)
-        return Gpt2PretrainConfig(
+        cfg = Gpt2PretrainConfig(
             data=self._data_config(),
             arch=self.arch,
             trainer=trainer,
         )
+        if not flight_check:
+            return cfg
 
-    def flight_check_config(
+        data_overrides = dict(_FLIGHT_DATA)
+        if cfg.data.max_train_samples is not None:
+            data_overrides["max_train_samples"] = _FLIGHT_MAX_TRAIN_SAMPLES
+        return cfg.with_trainer(
+            output_dir=self.output_root() / run_name,
+            run_name=run_name,
+            **_FLIGHT_TRAINER,
+        ).with_data(**data_overrides)
+
+    # Back-compat aliases — prefer :meth:`config`.
+    def base_config(
         self,
-        profile: AcceleratorProfile | None = None,
+        profile: AcceleratorProfile | str | None = None,
         *,
         wandb_name: str | None = None,
     ) -> Gpt2PretrainConfig:
-        """Tiny end-to-end smoke config (short blocks / steps / batches)."""
-        profile = profile or resolve_accelerator_profile()
-        flight_name = self.resolved_run_name(
-            profile=profile,
-            wandb_name=wandb_name,
-            flight_check=True,
-        )
-        base = self.base_config(profile)
-        data_overrides = dict(_FLIGHT_DATA)
-        if base.data.max_train_samples is not None:
-            data_overrides["max_train_samples"] = _FLIGHT_MAX_TRAIN_SAMPLES
-        return with_data(
-            with_trainer(
-                base,
-                output_dir=self.output_root() / flight_name,
-                run_name=flight_name,
-                **_FLIGHT_TRAINER,
-            ),
-            **data_overrides,
-        )
+        return self.config(profile, wandb_name=wandb_name)
+
+    def flight_check_config(
+        self,
+        profile: AcceleratorProfile | str | None = None,
+        *,
+        wandb_name: str | None = None,
+    ) -> Gpt2PretrainConfig:
+        return self.config(profile, wandb_name=wandb_name, flight_check=True)
 
     def _launch(
         self,
@@ -343,6 +398,7 @@ class Gpt2PretrainExperiment:
     def train(
         self,
         *,
+        profile: AcceleratorProfile | str | None = None,
         wandb_entity: str | None = None,
         wandb_project: str | None = None,
         wandb_name: str | None = None,
@@ -350,26 +406,26 @@ class Gpt2PretrainExperiment:
         resume_from_checkpoint: str | Path | bool | None = None,
         tpu_launch: bool | None = None,
         tpu_num_processes: int | None = None,
-        **trainer_overrides,
     ):
         """Full pretraining run.
+
+        Runtime kwargs only (profile, W&B, resume, TPU launch). Ablate
+        hyperparameters by composing the recipe first
+        (``variant`` / ``with_arch`` / ``with_data`` / ``with_trainer``).
 
         Returns ``(trainer, run_summary)``. ``run_summary.json`` / ``run_config.json``
         are always written under the run ``output_dir``. On Colab TPU notebooks,
         auto-launches via ``notebook_launcher`` and returns ``(None, None)``.
         """
-        profile = resolve_accelerator_profile()
-        cfg = self.base_config(profile, wandb_name=wandb_name)
-        # wandb_name already folded into run_name; avoid double-apply in pretrain.
-        resolved_name = cfg.trainer.run_name
-        cfg = apply_runtime_trainer_overrides(cfg, trainer_overrides)
+        resolved = self.resolve_profile(profile)
+        cfg = self.config(resolved, wandb_name=wandb_name)
         return self._launch(
             cfg,
             run_label="regular",
-            profile=profile,
+            profile=resolved,
             wandb_entity=wandb_entity,
             wandb_project=wandb_project,
-            wandb_name=resolved_name,
+            wandb_name=cfg.trainer.run_name,
             use_wandb=use_wandb,
             resume_from_checkpoint=resume_from_checkpoint,
             tpu_launch=tpu_launch,
@@ -379,6 +435,7 @@ class Gpt2PretrainExperiment:
     def train_flight_check(
         self,
         *,
+        profile: AcceleratorProfile | str | None = None,
         wandb_entity: str | None = None,
         wandb_project: str | None = None,
         wandb_name: str | None = None,
@@ -386,24 +443,20 @@ class Gpt2PretrainExperiment:
         resume_from_checkpoint: str | Path | bool | None = None,
         tpu_launch: bool | None = None,
         tpu_num_processes: int | None = None,
-        **trainer_overrides,
     ):
         """Fast end-to-end smoke test (tiny steps / block size).
 
         Returns ``(trainer, run_summary)`` like :meth:`train`.
         """
-        profile = resolve_accelerator_profile()
-        cfg = self.flight_check_config(profile, wandb_name=wandb_name)
-        flight_name = cfg.trainer.run_name
-        if trainer_overrides:
-            cfg = with_trainer(cfg, **trainer_overrides)
+        resolved = self.resolve_profile(profile)
+        cfg = self.config(resolved, wandb_name=wandb_name, flight_check=True)
         return self._launch(
             cfg,
             run_label="flight_check",
-            profile=profile,
+            profile=resolved,
             wandb_entity=wandb_entity,
             wandb_project=wandb_project,
-            wandb_name=flight_name,
+            wandb_name=cfg.trainer.run_name,
             use_wandb=use_wandb,
             resume_from_checkpoint=resume_from_checkpoint,
             tpu_launch=tpu_launch,
@@ -412,7 +465,7 @@ class Gpt2PretrainExperiment:
 
     def spot_check(self) -> None:
         """Sample completions from the newest saved checkpoint."""
-        cfg = self.base_config()
+        cfg = self.config()
         run_spot_check(
             output_dirs=self.checkpoint_output_dirs(),
             spot=SpotCheckConfig(),
@@ -441,19 +494,25 @@ class Gpt2PretrainExperiment:
     def main(self, argv: list[str] | None = None) -> None:
         args = self.build_parser().parse_args(argv)
         wb = wandb_kwargs(args)
-        overrides = train_override_kwargs(args)
+        exp = self.override(**train_override_kwargs(args))
+        if getattr(args, "profile", None) is not None:
+            exp = exp.with_profile(args.profile)
         if args.train:
-            self.train(**wb, **overrides)
+            exp.train(**wb)
         elif args.flight_check:
-            self.train_flight_check(**wb, **overrides)
+            exp.train_flight_check(**wb)
         elif args.spot_check:
-            self.spot_check()
+            exp.spot_check()
 
 
 def module_api(experiment: Gpt2PretrainExperiment) -> tuple:
-    """Unpack into a thin experiment module: ``base_config, train, … = module_api(exp)``."""
+    """Unpack into a thin experiment module: ``config, train, … = module_api(exp)``.
+
+    The first value is :meth:`Gpt2PretrainExperiment.config` (also fine to bind
+    as ``base_config`` for older notebook cells).
+    """
     return (
-        experiment.base_config,
+        experiment.config,
         experiment.train,
         experiment.train_flight_check,
         experiment.spot_check,

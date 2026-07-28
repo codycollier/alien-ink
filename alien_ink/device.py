@@ -404,10 +404,9 @@ def introspect(
         rows.append(("peak_tflops", f"{info.peak_tflops:g}"))
 
     try:
-        # Lazy import: hardware.py depends on resolve_device().
-        from alien_ink.hf.hardware import resolve_accelerator_profile
+        from alien_ink.hf.hardware import get_profile
 
-        profile = resolve_accelerator_profile()
+        profile = get_profile()
         rows.append(
             (
                 "profile",

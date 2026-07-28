@@ -39,7 +39,12 @@ log = get_logger("hf.pretrain")
 
 @dataclass(frozen=True)
 class Gpt2PretrainConfig:
-    """Composable config for from-scratch GPT-2 pretraining on a Hub text corpus."""
+    """Fully resolved GPT-2 pretrain snapshot (data + arch + trainer).
+
+    Built by :meth:`Gpt2PretrainExperiment.config`. Compose further with
+    :meth:`with_arch`, :meth:`with_data`, and :meth:`with_trainer` — the same
+    method names as on the experiment recipe.
+    """
 
     data: PretrainDataConfig
     arch: Gpt2ArchConfig = field(default_factory=Gpt2ArchConfig)
@@ -60,29 +65,17 @@ class Gpt2PretrainConfig:
                 f"arch.n_positions ({self.arch.n_positions})"
             )
 
+    def with_trainer(self, **trainer_overrides) -> Gpt2PretrainConfig:
+        """Return a copy with selected ``CausalLmTrainerConfig`` fields replaced."""
+        return replace(self, trainer=replace(self.trainer, **trainer_overrides))
 
-def with_trainer(
-    config: Gpt2PretrainConfig,
-    **trainer_overrides,
-) -> Gpt2PretrainConfig:
-    """Return ``config`` with selected ``CausalLmTrainerConfig`` fields replaced."""
-    return replace(config, trainer=replace(config.trainer, **trainer_overrides))
+    def with_data(self, **data_overrides) -> Gpt2PretrainConfig:
+        """Return a copy with selected ``PretrainDataConfig`` fields replaced."""
+        return replace(self, data=replace(self.data, **data_overrides))
 
-
-def with_data(
-    config: Gpt2PretrainConfig,
-    **data_overrides,
-) -> Gpt2PretrainConfig:
-    """Return ``config`` with selected ``PretrainDataConfig`` fields replaced."""
-    return replace(config, data=replace(config.data, **data_overrides))
-
-
-def with_arch(
-    config: Gpt2PretrainConfig,
-    **arch_overrides,
-) -> Gpt2PretrainConfig:
-    """Return ``config`` with selected ``Gpt2ArchConfig`` fields replaced."""
-    return replace(config, arch=replace(config.arch, **arch_overrides))
+    def with_arch(self, **arch_overrides) -> Gpt2PretrainConfig:
+        """Return a copy with selected ``Gpt2ArchConfig`` fields replaced."""
+        return replace(self, arch=replace(self.arch, **arch_overrides))
 
 
 def resolve_use_wandb(
@@ -266,11 +259,11 @@ def pretrain_gpt2(
     env_files = env_files if env_files is not None else (Path.cwd() / ".env",)
 
     if resume_from_checkpoint is not None:
-        config = with_trainer(config, resume_from_checkpoint=resume_from_checkpoint)
+        config = config.with_trainer(resume_from_checkpoint=resume_from_checkpoint)
 
     want_wandb = resolve_use_wandb(config, use_wandb)
     if not want_wandb and not reporting_disabled(config.trainer.report_to):
-        config = with_trainer(config, report_to="none")
+        config = config.with_trainer(report_to="none")
 
     config.validate()
     accel, tokens_per_step = log_pretrain_banner(
@@ -289,7 +282,7 @@ def pretrain_gpt2(
     )
 
     if wandb_name and wandb_name != config.trainer.run_name:
-        config = with_trainer(config, run_name=wandb_name)
+        config = config.with_trainer(run_name=wandb_name)
 
     set_seed(config.trainer.seed)
     if want_wandb:

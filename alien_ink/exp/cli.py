@@ -6,6 +6,7 @@ import argparse
 from pathlib import Path
 
 from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT
+from alien_ink.hf.hardware import TRAINING_MACHINES
 
 
 def add_wandb_args(parser: argparse.ArgumentParser) -> None:
@@ -36,7 +37,21 @@ def add_wandb_args(parser: argparse.ArgumentParser) -> None:
 
 
 def add_train_override_args(parser: argparse.ArgumentParser) -> None:
-    """Optional training hyperparameter / resume overrides."""
+    """Optional profile / hyperparameter / resume overrides.
+
+    Hyperparameter flags are applied via :meth:`Gpt2PretrainExperiment.override`
+    before ``train`` (compose-then-run). ``--profile`` pins hardware.
+    """
+    known = ", ".join(sorted(TRAINING_MACHINES))
+    parser.add_argument(
+        "--profile",
+        default=None,
+        metavar="NAME",
+        help=(
+            "Hardware profile name "
+            f"(one of: {known}). Default: detect from the live device."
+        ),
+    )
     parser.add_argument(
         "--max-steps",
         type=int,
@@ -96,7 +111,11 @@ def wandb_kwargs(args: argparse.Namespace) -> dict[str, str | bool | None]:
 
 
 def train_override_kwargs(args: argparse.Namespace) -> dict:
-    """Trainer overrides + resume flag derived from CLI args."""
+    """Recipe/trainer overrides derived from CLI args (for ``experiment.override``).
+
+    Does not include ``--profile`` (applied via ``with_profile``) or W&B flags
+    (runtime ``train`` kwargs).
+    """
     overrides: dict = {}
     for name in (
         "max_steps",

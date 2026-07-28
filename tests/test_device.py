@@ -166,7 +166,7 @@ def test_introspect_cuda(monkeypatch):
         xla_available=False,
     )
     monkeypatch.setattr(device_mod, "collect_accelerator_info", lambda **_: fake)
-    monkeypatch.setattr(hw, "resolve_accelerator_profile", lambda: hw.COLAB_G4)
+    monkeypatch.setattr(hw, "get_profile", lambda profile=None: hw.COLAB_G4)
 
     text = device_mod.introspect()
     assert device_mod._kv("torch", "2.6.0+cu128") in text
@@ -210,7 +210,7 @@ def test_introspect_xla(monkeypatch):
     monkeypatch.setattr(device_mod, "_torch_xla_version", lambda: "2.6.0")
     monkeypatch.setattr(device_mod, "_xla_device_str", lambda: "xla:0")
     monkeypatch.setattr(device_mod, "_xla_device_type", lambda: "TPU")
-    monkeypatch.setattr(hw, "resolve_accelerator_profile", lambda: hw.COLAB_TPU_V6E1)
+    monkeypatch.setattr(hw, "get_profile", lambda profile=None: hw.COLAB_TPU_V6E1)
 
     text = device_mod.introspect()
     assert device_mod._kv("torch", "2.6.0") in text

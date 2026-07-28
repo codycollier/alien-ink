@@ -8,6 +8,14 @@ Primary targets (see README-exp.md):
 ``vs_rtx_3070`` and peak TFLOPS follow the project comparison table
 (FP16 for GPUs, BF16 for TPU). Batch knobs prioritize filling device memory
 with microbatches on cloud (accum=1); local keeps small microbatch + accum.
+
+Profile selection — one entry point
+-----------------------------------
+Use :func:`get_profile` everywhere::
+
+    get_profile()                 # detect from the live device
+    get_profile("colab-g4")       # named entry in TRAINING_MACHINES
+    get_profile(COLAB_G4)         # already an AcceleratorProfile
 """
 
 from __future__ import annotations
@@ -141,13 +149,15 @@ CPU_PROFILE = AcceleratorProfile(
     gradient_accumulation_steps=8,
 )
 
-# Public aliases for known training machines.
+# Named registry — the only string → profile mapping.
 TRAINING_MACHINES: dict[str, AcceleratorProfile] = {
     "mist-rtx-3070": LOCAL_RTX,
+    "local-rtx": LOCAL_RTX,
     "colab-g4": COLAB_G4,
     "colab-a100-40gb": COLAB_A100_40GB,
     "colab-tpu-v6e1": COLAB_TPU_V6E1,
     "colab-l4": COLAB_L4,
+    "cpu": CPU_PROFILE,
 }
 
 
@@ -212,8 +222,8 @@ def _is_a100_40gb(name: str, mem: float | None) -> bool:
     return "40" in upper
 
 
-def resolve_accelerator_profile() -> AcceleratorProfile:
-    """Pick batch/run defaults for the current machine.
+def detect_profile() -> AcceleratorProfile:
+    """Detect batch/run defaults from the live device.
 
     Assumptions for this project:
     - Colab GPU G4 → RTX PRO 6000 Blackwell (~96 GB)
@@ -239,6 +249,37 @@ def resolve_accelerator_profile() -> AcceleratorProfile:
         # Apple GPU: keep the conservative local recipe; still tag as -gpu.
         return LOCAL_RTX
     return CPU_PROFILE
+
+
+# Back-compat alias — prefer :func:`get_profile` / :func:`detect_profile`.
+resolve_accelerator_profile = detect_profile
+
+
+def get_profile(
+    profile: AcceleratorProfile | str | None = None,
+) -> AcceleratorProfile:
+    """Resolve a training profile — the single selection entry point.
+
+    - ``None`` → :func:`detect_profile` from the live device
+    - ``str`` → lookup in :data:`TRAINING_MACHINES` (label or registry key)
+    - :class:`AcceleratorProfile` → returned as-is
+    """
+    if profile is None:
+        return detect_profile()
+    if isinstance(profile, AcceleratorProfile):
+        return profile
+    if isinstance(profile, str):
+        key = profile.strip().lower()
+        if key in TRAINING_MACHINES:
+            return TRAINING_MACHINES[key]
+        known = ", ".join(sorted(TRAINING_MACHINES))
+        raise KeyError(
+            f"Unknown hardware profile {profile!r}. Known names: {known}"
+        )
+    raise TypeError(
+        "profile must be None, str, or AcceleratorProfile, "
+        f"got {type(profile).__name__}"
+    )
 
 
 def trainer_overrides_for_profile(profile: AcceleratorProfile) -> dict[str, int]:

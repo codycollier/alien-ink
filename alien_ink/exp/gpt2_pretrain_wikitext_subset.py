@@ -36,9 +36,10 @@ EXPERIMENT = Gpt2PretrainExperiment(
     warmup_steps=200,
 )
 
-base_config, train, train_flight_check, spot_check, build_parser, main = module_api(
+config, train, train_flight_check, spot_check, build_parser, main = module_api(
     EXPERIMENT
 )
+base_config = config  # alias
 
 
 if __name__ == "__main__":

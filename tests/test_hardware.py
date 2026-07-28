@@ -69,81 +69,104 @@ def test_profile_metrics_tpu_v6e1():
 
 def test_training_machines_registry():
     assert hw.TRAINING_MACHINES["mist-rtx-3070"] is hw.LOCAL_RTX
+    assert hw.TRAINING_MACHINES["local-rtx"] is hw.LOCAL_RTX
     assert hw.TRAINING_MACHINES["colab-g4"] is hw.COLAB_G4
     assert hw.TRAINING_MACHINES["colab-a100-40gb"] is hw.COLAB_A100_40GB
     assert hw.TRAINING_MACHINES["colab-tpu-v6e1"] is hw.COLAB_TPU_V6E1
+    assert hw.TRAINING_MACHINES["cpu"] is hw.CPU_PROFILE
 
 
-def test_resolve_profile_tpu(monkeypatch):
+def test_get_profile_by_name():
+    assert hw.get_profile("colab-g4") is hw.COLAB_G4
+    assert hw.get_profile("mist-rtx-3070") is hw.LOCAL_RTX
+    assert hw.get_profile(hw.COLAB_TPU_V6E1) is hw.COLAB_TPU_V6E1
+
+
+def test_get_profile_unknown_name():
+    import pytest
+
+    with pytest.raises(KeyError, match="Unknown hardware profile"):
+        hw.get_profile("no-such-machine")
+
+
+def test_get_profile_none_detects(monkeypatch):
+    monkeypatch.setattr(hw, "detect_profile", lambda: hw.COLAB_G4)
+    assert hw.get_profile() is hw.COLAB_G4
+    assert hw.get_profile(None) is hw.COLAB_G4
+
+
+def test_detect_profile_tpu(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "xla")
-    profile = hw.resolve_accelerator_profile()
+    profile = hw.detect_profile()
     assert profile == hw.COLAB_TPU_V6E1
     assert profile.kind == "tpu"
     assert profile.per_device_train_batch_size == 32
     assert profile.gradient_accumulation_steps == 1
     assert profile.tpu_num_processes == 1
+    # Back-compat alias
+    assert hw.resolve_accelerator_profile() == hw.COLAB_TPU_V6E1
 
 
-def test_resolve_profile_colab_g4_by_name(monkeypatch):
+def test_detect_profile_colab_g4_by_name(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "cuda")
     monkeypatch.setattr(hw, "is_colab", lambda: True)
     monkeypatch.setattr(hw, "_cuda_name", lambda: "NVIDIA RTX PRO 6000 Blackwell")
     monkeypatch.setattr(hw, "_cuda_memory_gb", lambda: 95.5)
-    assert hw.resolve_accelerator_profile() == hw.COLAB_G4
+    assert hw.detect_profile() == hw.COLAB_G4
 
 
-def test_resolve_profile_colab_g4_by_memory(monkeypatch):
+def test_detect_profile_colab_g4_by_memory(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "cuda")
     monkeypatch.setattr(hw, "is_colab", lambda: True)
     monkeypatch.setattr(hw, "_cuda_name", lambda: "NVIDIA Graphics Device")
     monkeypatch.setattr(hw, "_cuda_memory_gb", lambda: 96.0)
-    assert hw.resolve_accelerator_profile() == hw.COLAB_G4
+    assert hw.detect_profile() == hw.COLAB_G4
 
 
-def test_resolve_profile_colab_a100_40gb_by_name(monkeypatch):
+def test_detect_profile_colab_a100_40gb_by_name(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "cuda")
     monkeypatch.setattr(hw, "is_colab", lambda: True)
     monkeypatch.setattr(hw, "_cuda_name", lambda: "NVIDIA A100-SXM4-40GB")
     monkeypatch.setattr(hw, "_cuda_memory_gb", lambda: 39.4)
-    assert hw.resolve_accelerator_profile() == hw.COLAB_A100_40GB
+    assert hw.detect_profile() == hw.COLAB_A100_40GB
 
 
-def test_resolve_profile_a100_80gb_not_40gb_profile(monkeypatch):
+def test_detect_profile_a100_80gb_not_40gb_profile(monkeypatch):
     """80 GB A100 falls through to mid-tier (not the 40 GB recipe)."""
     monkeypatch.setattr(hw, "resolve_device", lambda: "cuda")
     monkeypatch.setattr(hw, "is_colab", lambda: True)
     monkeypatch.setattr(hw, "_cuda_name", lambda: "NVIDIA A100-SXM4-80GB")
     monkeypatch.setattr(hw, "_cuda_memory_gb", lambda: 79.2)
-    assert hw.resolve_accelerator_profile() == hw.COLAB_L4
+    assert hw.detect_profile() == hw.COLAB_L4
 
 
-def test_resolve_profile_colab_l4(monkeypatch):
+def test_detect_profile_colab_l4(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "cuda")
     monkeypatch.setattr(hw, "is_colab", lambda: True)
     monkeypatch.setattr(hw, "_cuda_name", lambda: "NVIDIA L4")
     monkeypatch.setattr(hw, "_cuda_memory_gb", lambda: 22.5)
-    assert hw.resolve_accelerator_profile() == hw.COLAB_L4
+    assert hw.detect_profile() == hw.COLAB_L4
 
 
-def test_resolve_profile_local_rtx(monkeypatch):
+def test_detect_profile_local_rtx(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "cuda")
     monkeypatch.setattr(hw, "is_colab", lambda: False)
     monkeypatch.setattr(hw, "_cuda_name", lambda: "NVIDIA GeForce RTX 3070")
     monkeypatch.setattr(hw, "_cuda_memory_gb", lambda: 8.0)
-    profile = hw.resolve_accelerator_profile()
+    profile = hw.detect_profile()
     assert profile == hw.LOCAL_RTX
     assert profile.per_device_train_batch_size == 2
     assert profile.gradient_accumulation_steps == 16
 
 
-def test_resolve_profile_large_vram_non_colab_l4(monkeypatch):
+def test_detect_profile_large_vram_non_colab_l4(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "cuda")
     monkeypatch.setattr(hw, "is_colab", lambda: False)
     monkeypatch.setattr(hw, "_cuda_name", lambda: "NVIDIA L4")
     monkeypatch.setattr(hw, "_cuda_memory_gb", lambda: 23.0)
-    assert hw.resolve_accelerator_profile() == hw.COLAB_L4
+    assert hw.detect_profile() == hw.COLAB_L4
 
 
-def test_resolve_profile_cpu(monkeypatch):
+def test_detect_profile_cpu(monkeypatch):
     monkeypatch.setattr(hw, "resolve_device", lambda: "cpu")
-    assert hw.resolve_accelerator_profile() == hw.CPU_PROFILE
+    assert hw.detect_profile() == hw.CPU_PROFILE

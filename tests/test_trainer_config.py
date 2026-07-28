@@ -11,7 +11,6 @@ transformers = pytest.importorskip("transformers")
 from alien_ink.hf.pretrain import (  # noqa: E402
     Gpt2PretrainConfig,
     resolve_use_wandb,
-    with_trainer,
 )
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 from alien_ink.hf.model import Gpt2ArchConfig  # noqa: E402
@@ -57,7 +56,7 @@ def test_resolve_use_wandb_explicit_and_report_to():
     assert resolve_use_wandb(cfg, True) is True
     assert resolve_use_wandb(cfg, False) is False
     assert resolve_use_wandb(cfg, None) is True
-    cfg_off = with_trainer(cfg, report_to="none")
+    cfg_off = cfg.with_trainer(report_to="none")
     assert resolve_use_wandb(cfg_off, None) is False
 
 
