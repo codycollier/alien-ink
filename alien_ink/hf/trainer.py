@@ -21,10 +21,6 @@ from alien_ink.device import (
     distributed_world_size,
     precision_label,
 )
-from alien_ink.hf.xla_ckpt import (
-    native_gradient_checkpointing_supported,
-    resolve_trainer_optim,
-)
 from alien_ink.hf.metrics import (
     ModelSize,
     RunSummary,
@@ -68,6 +64,9 @@ class CausalLmTrainerConfig:
     Length is either step-capped (``max_steps >= 1``) or epoch-based
     (``max_steps == -1`` and ``num_train_epochs > 0``). Positive ``max_steps``
     wins over epochs, matching Hugging Face ``TrainingArguments``.
+
+    Batch defaults target Mist / RTX 3070 (~8 GB): microbatch 2 with
+    ``gradient_accumulation_steps=16`` (effective batch 32).
     """
 
     output_dir: Path
@@ -274,26 +273,6 @@ def build_training_arguments(
         "none" if reporting_disabled(config.report_to) else config.report_to
     )
 
-    # Native ``torch.utils.checkpoint`` does ``getattr(torch, device)`` and
-    # raises ``AttributeError: module 'torch' has no attribute 'xla'`` on TPU.
-    use_grad_ckpt = (
-        config.gradient_checkpointing
-        and native_gradient_checkpointing_supported(device)
-    )
-    if config.gradient_checkpointing and not use_grad_ckpt:
-        detail(
-            "gradient_checkpointing disabled on XLA/TPU "
-            "(native torch checkpoint is unsupported)",
-            logger=log,
-        )
-
-    # Recent transformers default to adamw_torch_fused; fused kernels reject XLA.
-    optim_kwargs: dict = {}
-    if device == "xla":
-        optim = resolve_trainer_optim(device)
-        optim_kwargs["optim"] = optim
-        detail(f"optimizer: {optim} (fused AdamW unsupported on XLA)", logger=log)
-
     # Epoch-based subset runs use step cadence (N evals/epoch including epoch end)
     # rather than HF's once-per-epoch strategy.
     if not has_eval:
@@ -308,7 +287,7 @@ def build_training_arguments(
         per_device_train_batch_size=config.per_device_train_batch_size,
         per_device_eval_batch_size=config.per_device_eval_batch_size,
         gradient_accumulation_steps=config.gradient_accumulation_steps,
-        gradient_checkpointing=use_grad_ckpt,
+        gradient_checkpointing=config.gradient_checkpointing,
         learning_rate=config.learning_rate,
         lr_scheduler_type=config.lr_scheduler_type,
         warmup_steps=config.warmup_steps,
@@ -330,13 +309,11 @@ def build_training_arguments(
         report_to=report_to,
         run_name=config.run_name,
         dataloader_pin_memory=device == "cuda",
-        # XLA/TPU multiproc is sensitive to forked DataLoader workers.
         dataloader_num_workers=(
             config.dataloader_num_workers if device == "cuda" else 0
         ),
         seed=config.seed,
         remove_unused_columns=False,
-        **optim_kwargs,
     )
 
 
@@ -373,7 +350,7 @@ def build_causal_lm_trainer(
     has_eval = has_eval_examples(eval_dataset)
     # Materialized epoch runs: derive log/eval/save from dataset length so we
     # hit ~5 evals per epoch (including epoch end). Streamed / step-capped runs
-    # already carry an explicit cadence from the recipe.
+    # already carry an explicit cadence from the caller.
     if config.uses_epochs():
         try:
             num_examples = len(train_dataset)

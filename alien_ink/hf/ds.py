@@ -1,15 +1,32 @@
-"""Hugging Face dataset helpers — streaming text corpora and prompt extraction."""
+"""Hugging Face dataset helpers — streaming / materialized text corpora.
+
+Shipped corpora (extend via :func:`register_dataset`):
+
+- ``wikipedia_english`` — wikimedia/wikipedia
+- ``wikitext_103`` — Salesforce/wikitext
+- ``c4_english`` — allenai/c4
+
+Each supports three load modes:
+
+- ``streaming`` — train stays an IterableDataset
+- ``subset`` — materialize a bounded train prefix (``max_train_samples``)
+- ``complete`` — materialize the full Hub split (map-style, no streaming)
+"""
 
 from __future__ import annotations
 
 import itertools
+from collections.abc import Callable
 from dataclasses import dataclass
+from typing import Literal
 
 from datasets import Dataset, IterableDataset, load_dataset
 
 from alien_ink.log import detail, get_logger, step
 
 log = get_logger("hf.ds")
+
+LoadMode = Literal["streaming", "subset", "complete"]
 
 
 @dataclass(frozen=True)
@@ -33,15 +50,18 @@ class PretrainDataConfig:
 
     If ``eval_source`` is set, eval rows are taken from that split (capped by
     ``max_eval_samples``). Otherwise the first ``max_eval_samples`` rows of the
-    train stream are held out so train/eval do not overlap.
+    train stream/split are held out so train/eval do not overlap.
 
-    When ``max_train_samples`` is ``None``, training stays streamed. When set,
-    the train prefix is materialized into a map-style Dataset (after any
-    hold-out), which is useful for small local subsets.
+    Load modes:
+
+    - ``streaming``: train stays streamed (``max_train_samples`` must be None)
+    - ``subset``: materialize ``max_train_samples`` train rows (required)
+    - ``complete``: materialize the full Hub split (non-streaming load)
     """
 
     source: HubTextSource
     eval_source: HubTextSource | None = None
+    load_mode: LoadMode = "streaming"
     max_eval_samples: int = 1_000
     max_train_samples: int | None = None
     stream_shuffle_buffer: int = 10_000
@@ -50,9 +70,25 @@ class PretrainDataConfig:
     seed: int = 101
 
     def validate(self) -> None:
+        if self.load_mode not in ("streaming", "subset", "complete"):
+            raise ValueError(
+                f"load_mode must be streaming|subset|complete, got {self.load_mode!r}"
+            )
         if self.max_eval_samples < 1:
             raise ValueError(
                 f"max_eval_samples must be >= 1, got {self.max_eval_samples}"
+            )
+        if self.load_mode == "streaming" and self.max_train_samples is not None:
+            raise ValueError(
+                "load_mode='streaming' requires max_train_samples=None; "
+                "use load_mode='subset' for a bounded materialization"
+            )
+        if self.load_mode == "subset" and (
+            self.max_train_samples is None or self.max_train_samples < 1
+        ):
+            raise ValueError(
+                "load_mode='subset' requires max_train_samples >= 1, "
+                f"got {self.max_train_samples}"
             )
         if self.max_train_samples is not None and self.max_train_samples < 1:
             raise ValueError(
@@ -75,12 +111,14 @@ class PretrainDataConfig:
 def wikipedia_english(
     *,
     name: str = "20231101.en",
+    load_mode: LoadMode = "streaming",
     max_eval_samples: int = 1_000,
     max_train_samples: int | None = None,
 ) -> PretrainDataConfig:
     """English Wikipedia dump (single train split; eval via hold-out prefix)."""
     return PretrainDataConfig(
         source=HubTextSource(dataset="wikimedia/wikipedia", name=name),
+        load_mode=load_mode,
         max_eval_samples=max_eval_samples,
         max_train_samples=max_train_samples,
     )
@@ -95,7 +133,21 @@ def wikipedia_english_subset(
     """Materialized English Wikipedia prefix (default 20k train + 1k hold-out)."""
     return wikipedia_english(
         name=name,
+        load_mode="subset",
         max_train_samples=max_train_samples,
+        max_eval_samples=max_eval_samples,
+    )
+
+
+def wikipedia_english_complete(
+    *,
+    name: str = "20231101.en",
+    max_eval_samples: int = 1_000,
+) -> PretrainDataConfig:
+    """Fully materialized English Wikipedia train split (non-streaming)."""
+    return wikipedia_english(
+        name=name,
+        load_mode="complete",
         max_eval_samples=max_eval_samples,
     )
 
@@ -103,6 +155,7 @@ def wikipedia_english_subset(
 def wikitext_103(
     *,
     name: str = "wikitext-103-v1",
+    load_mode: LoadMode = "streaming",
     max_eval_samples: int = 1_000,
     max_train_samples: int | None = None,
 ) -> PretrainDataConfig:
@@ -112,6 +165,7 @@ def wikitext_103(
         eval_source=HubTextSource(
             dataset="Salesforce/wikitext", name=name, split="validation"
         ),
+        load_mode=load_mode,
         max_eval_samples=max_eval_samples,
         max_train_samples=max_train_samples,
     )
@@ -126,7 +180,21 @@ def wikitext_103_subset(
     """Materialized WikiText-103 prefix (default 20k train + 1k validation)."""
     return wikitext_103(
         name=name,
+        load_mode="subset",
         max_train_samples=max_train_samples,
+        max_eval_samples=max_eval_samples,
+    )
+
+
+def wikitext_103_complete(
+    *,
+    name: str = "wikitext-103-v1",
+    max_eval_samples: int = 1_000,
+) -> PretrainDataConfig:
+    """Fully materialized WikiText-103 train + validation (non-streaming)."""
+    return wikitext_103(
+        name=name,
+        load_mode="complete",
         max_eval_samples=max_eval_samples,
     )
 
@@ -134,6 +202,7 @@ def wikitext_103_subset(
 def c4_english(
     *,
     name: str = "en",
+    load_mode: LoadMode = "streaming",
     max_eval_samples: int = 1_000,
     max_train_samples: int | None = None,
 ) -> PretrainDataConfig:
@@ -141,6 +210,7 @@ def c4_english(
     return PretrainDataConfig(
         source=HubTextSource(dataset="allenai/c4", name=name, split="train"),
         eval_source=HubTextSource(dataset="allenai/c4", name=name, split="validation"),
+        load_mode=load_mode,
         max_eval_samples=max_eval_samples,
         max_train_samples=max_train_samples,
     )
@@ -155,9 +225,53 @@ def c4_english_subset(
     """Materialized C4 English prefix (default 20k train + 1k validation)."""
     return c4_english(
         name=name,
+        load_mode="subset",
         max_train_samples=max_train_samples,
         max_eval_samples=max_eval_samples,
     )
+
+
+def c4_english_complete(
+    *,
+    name: str = "en",
+    max_eval_samples: int = 1_000,
+) -> PretrainDataConfig:
+    """Fully materialized C4 English train + validation (non-streaming)."""
+    return c4_english(
+        name=name,
+        load_mode="complete",
+        max_eval_samples=max_eval_samples,
+    )
+
+
+DatasetFactory = Callable[..., PretrainDataConfig]
+
+DATASET_REGISTRY: dict[str, DatasetFactory] = {
+    "wikipedia_english": wikipedia_english,
+    "wikipedia_english_subset": wikipedia_english_subset,
+    "wikipedia_english_complete": wikipedia_english_complete,
+    "wikitext_103": wikitext_103,
+    "wikitext_103_subset": wikitext_103_subset,
+    "wikitext_103_complete": wikitext_103_complete,
+    "c4_english": c4_english,
+    "c4_english_subset": c4_english_subset,
+    "c4_english_complete": c4_english_complete,
+}
+
+
+def register_dataset(name: str, factory: DatasetFactory) -> None:
+    """Register an additional dataset factory under ``name``."""
+    DATASET_REGISTRY[name] = factory
+
+
+def get_dataset(name: str, **kwargs) -> PretrainDataConfig:
+    """Build a :class:`PretrainDataConfig` from the registry."""
+    try:
+        factory = DATASET_REGISTRY[name]
+    except KeyError as exc:
+        known = ", ".join(sorted(DATASET_REGISTRY))
+        raise KeyError(f"unknown dataset {name!r}; known: {known}") from exc
+    return factory(**kwargs)
 
 
 def stream_hub_text(
@@ -169,6 +283,22 @@ def stream_hub_text(
     kwargs: dict = {
         "split": source.split,
         "streaming": True,
+        "trust_remote_code": trust_remote_code,
+    }
+    if source.name is not None:
+        return load_dataset(source.dataset, source.name, **kwargs)
+    return load_dataset(source.dataset, **kwargs)
+
+
+def load_hub_text(
+    source: HubTextSource,
+    *,
+    trust_remote_code: bool = False,
+) -> Dataset:
+    """Load a full Hub text split as a map-style Dataset (non-streaming)."""
+    kwargs: dict = {
+        "split": source.split,
+        "streaming": False,
         "trust_remote_code": trust_remote_code,
     }
     if source.name is not None:
@@ -199,6 +329,12 @@ def _source_label(source: HubTextSource) -> str:
     return source.dataset
 
 
+def _cap_dataset(dataset: Dataset, n: int) -> Dataset:
+    if len(dataset) <= n:
+        return dataset
+    return dataset.select(range(n))
+
+
 def load_streaming_train_eval(
     data: PretrainDataConfig,
     *,
@@ -213,6 +349,11 @@ def load_streaming_train_eval(
 
     Prefer ``load_train_eval`` unless you specifically need the streaming path.
     """
+    if data.load_mode != "streaming":
+        raise ValueError(
+            "load_streaming_train_eval requires load_mode='streaming'; "
+            "use load_train_eval instead"
+        )
     if data.max_train_samples is not None:
         raise ValueError(
             "load_streaming_train_eval requires max_train_samples=None; "
@@ -279,10 +420,16 @@ def load_materialized_train_eval(
 ) -> tuple[Dataset, Dataset]:
     """Materialize bounded train and eval map-style Datasets from Hub streams.
 
-    Requires ``max_train_samples``. Eval follows the same rules as the streaming
-    loader (dedicated ``eval_source`` or hold-out prefix). Train is the next
-    ``max_train_samples`` rows after any hold-out, then shuffled in memory.
+    Requires ``load_mode='subset'`` and ``max_train_samples``. Eval follows the
+    same rules as the streaming loader (dedicated ``eval_source`` or hold-out
+    prefix). Train is the next ``max_train_samples`` rows after any hold-out,
+    then shuffled in memory.
     """
+    if data.load_mode != "subset":
+        raise ValueError(
+            "load_materialized_train_eval requires load_mode='subset'; "
+            "use load_train_eval instead"
+        )
     if data.max_train_samples is None:
         raise ValueError(
             "load_materialized_train_eval requires max_train_samples; "
@@ -327,7 +474,67 @@ def load_materialized_train_eval(
     if verbose:
         detail(f"eval examples:  {len(eval_dataset):,} ({eval_label})", logger=log)
         detail(
-            f"train examples: {len(train_dataset):,} (materialized)",
+            f"train examples: {len(train_dataset):,} (materialized subset)",
+            logger=log,
+        )
+    return train_dataset, eval_dataset
+
+
+def load_complete_train_eval(
+    data: PretrainDataConfig,
+    *,
+    trust_remote_code: bool = False,
+    verbose: bool = True,
+) -> tuple[Dataset, Dataset]:
+    """Materialize full Hub train/eval splits (non-streaming).
+
+    Eval is capped to ``max_eval_samples``. When there is no dedicated
+    ``eval_source``, the first ``max_eval_samples`` train rows are held out.
+    """
+    if data.load_mode != "complete":
+        raise ValueError(
+            "load_complete_train_eval requires load_mode='complete'; "
+            "use load_train_eval instead"
+        )
+
+    source = data.source
+    if verbose:
+        step(
+            f"Loading complete {_source_label(source)} [{source.split}] "
+            f"(non-streaming)...",
+            logger=log,
+        )
+    train_full = load_hub_text(source, trust_remote_code=trust_remote_code)
+
+    if data.eval_source is not None:
+        eval_source = data.eval_source
+        if verbose:
+            step(
+                f"Loading complete {_source_label(eval_source)} "
+                f"[{eval_source.split}] (non-streaming)...",
+                logger=log,
+            )
+        eval_full = load_hub_text(eval_source, trust_remote_code=trust_remote_code)
+        eval_dataset = _cap_dataset(eval_full, data.max_eval_samples)
+        train_dataset = train_full.shuffle(seed=data.seed)
+        eval_label = eval_source.split
+    else:
+        if verbose:
+            step(
+                f"Holding out {data.max_eval_samples} eval rows from train...",
+                logger=log,
+            )
+        n_eval = min(data.max_eval_samples, len(train_full))
+        eval_dataset = train_full.select(range(n_eval))
+        train_dataset = train_full.select(range(n_eval, len(train_full))).shuffle(
+            seed=data.seed
+        )
+        eval_label = "held out"
+
+    if verbose:
+        detail(f"eval examples:  {len(eval_dataset):,} ({eval_label})", logger=log)
+        detail(
+            f"train examples: {len(train_dataset):,} (materialized complete)",
             logger=log,
         )
     return train_dataset, eval_dataset
@@ -339,15 +546,19 @@ def load_train_eval(
     trust_remote_code: bool = False,
     verbose: bool = True,
 ) -> tuple[Dataset | IterableDataset, Dataset]:
-    """Load train/eval for pretraining — streamed or materialized.
+    """Load train/eval for pretraining — streamed, subset, or complete.
 
-    Dispatches on ``max_train_samples``: ``None`` keeps train as an
-    ``IterableDataset``; an integer materializes a finite map-style train set.
-    Eval is always a bounded map-style Dataset.
+    Dispatches on ``load_mode``. Eval is always a bounded map-style Dataset.
     """
     data.validate()
-    if data.max_train_samples is not None:
+    if data.load_mode == "subset":
         return load_materialized_train_eval(
+            data,
+            trust_remote_code=trust_remote_code,
+            verbose=verbose,
+        )
+    if data.load_mode == "complete":
+        return load_complete_train_eval(
             data,
             trust_remote_code=trust_remote_code,
             verbose=verbose,

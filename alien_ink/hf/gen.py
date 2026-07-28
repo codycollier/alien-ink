@@ -9,7 +9,7 @@ from pathlib import Path
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
-from alien_ink.device import device_info, torch_device, xla_mark_step
+from alien_ink.device import device_info, torch_device
 from alien_ink.hf.ds import HubTextSource, load_text_prompts
 from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 from alien_ink.log import banner, blank, get_logger, header, step
@@ -92,9 +92,6 @@ def generate_completion(
         temperature=temperature,
         pad_token_id=tokenizer.pad_token_id,
     )
-    if device == "xla" or str(getattr(output_ids, "device", "")).startswith("xla"):
-        xla_mark_step()
-        output_ids = output_ids.cpu()
     full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     return full_text[len(prompt) :].strip()
 
@@ -127,7 +124,7 @@ def run_spot_check(
     output_dirs: list[Path] | tuple[Path, ...],
     spot: SpotCheckConfig | None = None,
     text_source: HubTextSource | None = None,
-    title: str = "GPT-2 spot check",
+    title: str = "Causal LM spot check",
     prefer_bf16: bool = True,
     prefer_fp16: bool = True,
 ) -> None:

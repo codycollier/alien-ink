@@ -1,7 +1,7 @@
 [project]
 name = "alien-ink"
-version = "0.2.7"
-description = "Alien Ink"
+version = "0.3.0"
+description = "Local from-scratch LM pretraining (Mist / RTX 3070)"
 authors = [
     { name = "Cody Collier", email = "cmcollier@gmail.com" }
 ]
@@ -74,4 +74,3 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["alien_ink"]
-

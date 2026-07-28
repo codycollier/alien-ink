@@ -1,4 +1,4 @@
-"""Tests for streamed vs materialized train/eval loading."""
+"""Tests for streamed / subset / complete train/eval loading."""
 
 from __future__ import annotations
 
@@ -10,14 +10,18 @@ datasets = pytest.importorskip("datasets")
 from datasets import Dataset, IterableDataset  # noqa: E402
 
 from alien_ink.hf.ds import (  # noqa: E402
+    DATASET_REGISTRY,
     DEFAULT_SUBSET_EVAL_SAMPLES,
     DEFAULT_SUBSET_TRAIN_SAMPLES,
     HubTextSource,
     PretrainDataConfig,
     c4_english_subset,
+    get_dataset,
+    load_complete_train_eval,
     load_materialized_train_eval,
     load_streaming_train_eval,
     load_train_eval,
+    wikipedia_english_complete,
     wikipedia_english_subset,
     wikitext_103_subset,
 )
@@ -33,31 +37,64 @@ def _iterable(rows: list[dict[str, str]]) -> IterableDataset:
 
 def test_subset_factories_default_sizes():
     wiki = wikipedia_english_subset()
+    assert wiki.load_mode == "subset"
     assert wiki.max_train_samples == DEFAULT_SUBSET_TRAIN_SAMPLES
     assert wiki.max_eval_samples == DEFAULT_SUBSET_EVAL_SAMPLES
     assert wiki.eval_source is None
 
     wt = wikitext_103_subset()
+    assert wt.load_mode == "subset"
     assert wt.max_train_samples == DEFAULT_SUBSET_TRAIN_SAMPLES
     assert wt.max_eval_samples == DEFAULT_SUBSET_EVAL_SAMPLES
     assert wt.eval_source is not None
     assert wt.eval_source.split == "validation"
 
     c4 = c4_english_subset()
+    assert c4.load_mode == "subset"
     assert c4.max_train_samples == DEFAULT_SUBSET_TRAIN_SAMPLES
     assert c4.max_eval_samples == DEFAULT_SUBSET_EVAL_SAMPLES
     assert c4.eval_source is not None
 
 
-def test_load_train_eval_dispatches_on_max_train_samples():
+def test_complete_factory():
+    cfg = wikipedia_english_complete()
+    assert cfg.load_mode == "complete"
+    assert cfg.max_train_samples is None
+
+
+def test_dataset_registry_contains_shipped_corpora():
+    for name in (
+        "wikipedia_english",
+        "wikipedia_english_subset",
+        "wikipedia_english_complete",
+        "wikitext_103",
+        "wikitext_103_subset",
+        "wikitext_103_complete",
+        "c4_english",
+        "c4_english_subset",
+        "c4_english_complete",
+    ):
+        assert name in DATASET_REGISTRY
+    streamed = get_dataset("wikipedia_english")
+    assert streamed.load_mode == "streaming"
+
+
+def test_load_train_eval_dispatches_on_load_mode():
     streamed = PretrainDataConfig(
         source=HubTextSource(dataset="dummy", split="train"),
+        load_mode="streaming",
         max_eval_samples=2,
     )
-    materialized = PretrainDataConfig(
+    subset = PretrainDataConfig(
         source=HubTextSource(dataset="dummy", split="train"),
+        load_mode="subset",
         max_eval_samples=2,
         max_train_samples=3,
+    )
+    complete = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy", split="train"),
+        load_mode="complete",
+        max_eval_samples=2,
     )
 
     with patch(
@@ -66,22 +103,37 @@ def test_load_train_eval_dispatches_on_max_train_samples():
     ) as stream_mock, patch(
         "alien_ink.hf.ds.load_materialized_train_eval",
         return_value=("mat", "eval"),
-    ) as mat_mock:
+    ) as mat_mock, patch(
+        "alien_ink.hf.ds.load_complete_train_eval",
+        return_value=("full", "eval"),
+    ) as full_mock:
         assert load_train_eval(streamed, verbose=False) == ("stream", "eval")
         stream_mock.assert_called_once()
         mat_mock.assert_not_called()
+        full_mock.assert_not_called()
 
         stream_mock.reset_mock()
         mat_mock.reset_mock()
-        assert load_train_eval(materialized, verbose=False) == ("mat", "eval")
+        full_mock.reset_mock()
+        assert load_train_eval(subset, verbose=False) == ("mat", "eval")
         mat_mock.assert_called_once()
         stream_mock.assert_not_called()
+        full_mock.assert_not_called()
+
+        stream_mock.reset_mock()
+        mat_mock.reset_mock()
+        full_mock.reset_mock()
+        assert load_train_eval(complete, verbose=False) == ("full", "eval")
+        full_mock.assert_called_once()
+        stream_mock.assert_not_called()
+        mat_mock.assert_not_called()
 
 
 def test_load_materialized_hold_out_skips_eval_prefix():
     train_rows = _rows("t", 10)
     cfg = PretrainDataConfig(
         source=HubTextSource(dataset="dummy", split="train"),
+        load_mode="subset",
         max_eval_samples=2,
         max_train_samples=3,
         seed=0,
@@ -108,6 +160,7 @@ def test_load_materialized_uses_eval_source():
     cfg = PretrainDataConfig(
         source=HubTextSource(dataset="dummy", split="train"),
         eval_source=HubTextSource(dataset="dummy", split="validation"),
+        load_mode="subset",
         max_eval_samples=2,
         max_train_samples=3,
         seed=0,
@@ -128,16 +181,51 @@ def test_load_materialized_uses_eval_source():
     assert set(eval_ds["text"]) == {"eval-0", "eval-1"}
 
 
-def test_load_streaming_rejects_max_train_samples():
+def test_load_complete_hold_out():
+    train_rows = _rows("t", 6)
+    cfg = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy", split="train"),
+        load_mode="complete",
+        max_eval_samples=2,
+        seed=0,
+    )
+
+    with patch(
+        "alien_ink.hf.ds.load_hub_text",
+        return_value=Dataset.from_list(train_rows),
+    ):
+        train_ds, eval_ds = load_complete_train_eval(cfg, verbose=False)
+
+    assert len(eval_ds) == 2
+    assert len(train_ds) == 4
+    assert set(eval_ds["text"]) == {"t-0", "t-1"}
+    assert set(train_ds["text"]).isdisjoint(set(eval_ds["text"]))
+
+
+def test_load_streaming_rejects_subset_mode():
     cfg = PretrainDataConfig(
         source=HubTextSource(dataset="dummy"),
+        load_mode="subset",
         max_train_samples=10,
     )
-    with pytest.raises(ValueError, match="max_train_samples=None"):
+    with pytest.raises(ValueError, match="load_mode='streaming'"):
         load_streaming_train_eval(cfg, verbose=False)
 
 
-def test_load_materialized_requires_max_train_samples():
-    cfg = PretrainDataConfig(source=HubTextSource(dataset="dummy"))
-    with pytest.raises(ValueError, match="requires max_train_samples"):
+def test_load_materialized_requires_subset_mode():
+    cfg = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy"),
+        load_mode="streaming",
+    )
+    with pytest.raises(ValueError, match="load_mode='subset'"):
         load_materialized_train_eval(cfg, verbose=False)
+
+
+def test_streaming_rejects_max_train_samples_on_validate():
+    cfg = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy"),
+        load_mode="streaming",
+        max_train_samples=10,
+    )
+    with pytest.raises(ValueError, match="max_train_samples=None"):
+        cfg.validate()
