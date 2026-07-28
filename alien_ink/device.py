@@ -207,6 +207,7 @@ def introspect(
     *,
     prefer_bf16: bool = True,
     prefer_fp16: bool = True,
+    info: AcceleratorInfo | None = None,
 ) -> str:
     """Return a bordered runtime summary for notebooks / verification.
 
@@ -215,11 +216,14 @@ def introspect(
         import alien_ink
         print(alien_ink.stars)
         print(alien_ink.device.introspect())
+
+    Pass ``info`` to reuse a previously collected :class:`AcceleratorInfo`.
     """
-    info = collect_accelerator_info(
-        prefer_bf16=prefer_bf16,
-        prefer_fp16=prefer_fp16,
-    )
+    if info is None:
+        info = collect_accelerator_info(
+            prefer_bf16=prefer_bf16,
+            prefer_fp16=prefer_fp16,
+        )
     rows: list[tuple[str, Any]] = [("torch", info.torch_version)]
 
     cuda_value: Any = info.cuda_available

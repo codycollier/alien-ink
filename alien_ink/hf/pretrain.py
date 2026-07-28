@@ -15,7 +15,11 @@ from typing import Any
 from datasets import IterableDataset
 from transformers import set_seed
 
-from alien_ink.device import collect_accelerator_info, distributed_world_size
+from alien_ink.device import (
+    collect_accelerator_info,
+    distributed_world_size,
+    introspect,
+)
 from alien_ink.env import load_env
 from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
 from alien_ink.hf.metrics import (
@@ -152,15 +156,23 @@ def log_pretrain_banner(
     run_label: str,
     config: PretrainConfig,
 ):
-    """Log run header / accelerator info; return ``(AcceleratorInfo, tokens_per_step)``."""
+    """Log stars header, device introspection, then run summary.
+
+    Returns ``(AcceleratorInfo, tokens_per_step)``.
+    """
     header(logger=log)
-    banner(title, logger=log)
-    step(f"run: {run_label}", logger=log)
 
     accel = collect_accelerator_info(
         prefer_bf16=config.trainer.prefer_bf16,
         prefer_fp16=config.trainer.prefer_fp16,
     )
+    for line in introspect(info=accel).splitlines():
+        log.info(line)
+    blank(logger=log)
+
+    banner(title, logger=log)
+    step(f"run: {run_label}", logger=log)
+
     world_size = accel.world_size or distributed_world_size()
     tps = tokens_per_optimizer_step(
         per_device_train_batch_size=config.trainer.per_device_train_batch_size,
@@ -168,21 +180,6 @@ def log_pretrain_banner(
         block_size=config.data.block_size,
         world_size=world_size,
     )
-    gpu = accel.gpu_name or accel.device
-    step(
-        f"Device: {gpu} "
-        f"(precision: {accel.precision}, world_size={world_size})",
-        logger=log,
-    )
-    if accel.gpu_memory_total_gb is not None:
-        detail(f"GPU memory: {accel.gpu_memory_total_gb:g} GB", logger=log)
-    if accel.cuda_version:
-        detail(
-            f"CUDA {accel.cuda_version}"
-            + (f", cuDNN {accel.cudnn_version}" if accel.cudnn_version else ""),
-            logger=log,
-        )
-    detail(f"torch {accel.torch_version}", logger=log)
     detail(f"model family: {config.arch.family}", logger=log)
     if config.trainer.uses_epochs():
         step(
