@@ -81,3 +81,57 @@ def test_load_env_colab_secret_errors_are_ignored(monkeypatch, tmp_path):
 
     assert cfg.hf_token is None
     assert cfg.wandb_api_key is None
+
+
+def test_load_env_reads_dotenv(monkeypatch, tmp_path):
+    env_path = tmp_path / ".env"
+    env_path.write_text(
+        "HF_TOKEN=hf_from_file\nWANDB_API_KEY=wandb_from_file\n",
+        encoding="utf-8",
+    )
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+
+    cfg = env_mod.load_env(
+        env_path,
+        wandb_entity="my-entity",
+        wandb_project="my-project",
+        verbose=False,
+    )
+
+    assert cfg.hf_token == "hf_from_file"
+    assert cfg.wandb_api_key == "wandb_from_file"
+    assert cfg.wandb_entity == "my-entity"
+    assert cfg.wandb_project == "my-project"
+    assert os.environ["HF_TOKEN"] == "hf_from_file"
+    assert os.environ["WANDB_API_KEY"] == "wandb_from_file"
+
+
+def test_load_env_strips_wandb_env_identity(monkeypatch, tmp_path):
+    monkeypatch.setenv("WANDB_ENTITY", "from-shell")
+    monkeypatch.setenv("WANDB_PROJECT", "from-shell")
+    monkeypatch.setenv("WANDB_NAME", "from-shell")
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+
+    cfg = env_mod.load_env(tmp_path / ".env", verbose=False)
+
+    assert "WANDB_ENTITY" not in os.environ
+    assert "WANDB_PROJECT" not in os.environ
+    assert "WANDB_NAME" not in os.environ
+    assert cfg.wandb_entity is None
+    assert cfg.wandb_project is None
+
+
+def test_load_env_without_kwargs_leaves_wandb_identity_unset(monkeypatch, tmp_path):
+    monkeypatch.delenv("HF_TOKEN", raising=False)
+    monkeypatch.delenv("HUGGING_FACE_HUB_TOKEN", raising=False)
+    monkeypatch.delenv("WANDB_API_KEY", raising=False)
+
+    cfg = env_mod.load_env(tmp_path / ".env", verbose=False)
+
+    assert cfg.hf_token is None
+    assert cfg.wandb_api_key is None
+    assert cfg.wandb_entity is None
+    assert cfg.wandb_project is None

@@ -1,4 +1,4 @@
-"""Environment / credential loading for experiment runs."""
+"""Environment / credential loading for training runs."""
 
 from __future__ import annotations
 
@@ -10,10 +10,6 @@ from dotenv import load_dotenv
 
 from alien_ink.log import detail, get_logger
 
-# W&B team (entity) + project defaults used everywhere.
-DEFAULT_WANDB_ENTITY = "logbook"
-DEFAULT_WANDB_PROJECT = "ink-explore"
-
 log = get_logger("env")
 
 
@@ -21,8 +17,8 @@ log = get_logger("env")
 class EnvConfig:
     hf_token: str | None
     wandb_api_key: str | None
-    wandb_entity: str
-    wandb_project: str
+    wandb_entity: str | None
+    wandb_project: str | None
 
 
 def in_colab() -> bool:
@@ -78,8 +74,6 @@ def load_env(
     *env_files: Path,
     wandb_entity: str | None = None,
     wandb_project: str | None = None,
-    wandb_entity_fallback: str = DEFAULT_WANDB_ENTITY,
-    wandb_project_fallback: str = DEFAULT_WANDB_PROJECT,
     verbose: bool = True,
 ) -> EnvConfig:
     """Load dotenv files and normalize HF / W&B API credentials.
@@ -87,9 +81,8 @@ def load_env(
     In Google Colab, also reads ``HF_TOKEN`` / ``WANDB_API_KEY`` from the
     notebook Secrets panel when those vars are not already set.
 
-    W&B entity / project come from kwargs or the code fallbacks only — never
-    from the process environment or ``.env``. Pass entity / project / run name
-    via CLI flags or function kwargs instead.
+    W&B entity / project come from kwargs only — never from the process
+    environment or ``.env``. Pass them explicitly when starting a W&B run.
     """
     if env_files:
         load_dotenv(env_files[0])
@@ -98,7 +91,7 @@ def load_env(
 
     colab = _apply_colab_secrets()
 
-    # Entity / project / run name are CLI/kwargs only — drop any values dotenv
+    # Entity / project / run name are kwargs only — drop any values dotenv
     # (or the parent shell) may have set so the W&B SDK cannot pick them up.
     os.environ.pop("WANDB_ENTITY", None)
     os.environ.pop("WANDB_PROJECT", None)
@@ -106,8 +99,6 @@ def load_env(
 
     hf_token = os.getenv("HF_TOKEN") or os.getenv("HUGGING_FACE_HUB_TOKEN")
     wandb_api_key = os.getenv("WANDB_API_KEY")
-    resolved_entity = wandb_entity or wandb_entity_fallback
-    resolved_project = wandb_project or wandb_project_fallback
 
     if hf_token:
         os.environ["HF_TOKEN"] = hf_token
@@ -124,12 +115,12 @@ def load_env(
             f"WANDB_API_KEY: {'set' if wandb_api_key else 'missing'}",
             logger=log,
         )
-        detail(f"wandb entity:  {resolved_entity}", logger=log)
-        detail(f"wandb project: {resolved_project}", logger=log)
+        detail(f"wandb entity:  {wandb_entity or '(unset)'}", logger=log)
+        detail(f"wandb project: {wandb_project or '(unset)'}", logger=log)
 
     return EnvConfig(
         hf_token=hf_token,
         wandb_api_key=wandb_api_key,
-        wandb_entity=resolved_entity,
-        wandb_project=resolved_project,
+        wandb_entity=wandb_entity,
+        wandb_project=wandb_project,
     )

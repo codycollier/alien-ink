@@ -1,40 +1,34 @@
 #!/usr/bin/env bash
 #
+# Create a local venv and install alien-ink with Hugging Face training deps.
 #
-#
-#
+set -euo pipefail
 
 echo "-------------------------------------------------------------------------"
-echo ":: Alien-Ink Experiments - setup"
+echo ":: Alien Ink — setup (Mist / local GPU)"
 echo "-------------------------------------------------------------------------"
 
+cd "$(dirname "$0")/.."
 
-# Go to root of repository
-cd $(dirname $0)
-cd ../
-
-# Ensure environment
 echo "-------------------------------------------------------------------------"
 echo ":: Creating and activating virt"
 echo "-------------------------------------------------------------------------"
 uv venv
+# shellcheck disable=SC1091
 source .venv/bin/activate
 
-# Ensure deps and install ink
 echo "-------------------------------------------------------------------------"
-echo ":: Installing alien-ink and depedencies"
+echo ":: Installing alien-ink and dependencies"
 echo "-------------------------------------------------------------------------"
 uv pip install -e ".[hf]"
 
-# Instruction
 echo "-------------------------------------------------------------------------"
-echo ":: ..."
+echo ":: Ready"
 echo "-------------------------------------------------------------------------"
 echo
 echo "> Environment is ready"
 echo "> Do:"
-echo "$ source .venv/bin/activate"
-echo "$ python -m alien_ink.exp.gpt2_pretrain_wikitext --flight-check"
+echo "  source .venv/bin/activate"
+echo "  cp -n .env.example .env   # then fill HF_TOKEN / WANDB_API_KEY"
+echo "  python -m alien_ink.samples.gpt2_wikitext_5k"
 echo
-echo
-

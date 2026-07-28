@@ -9,20 +9,36 @@ from pathlib import Path
 from typing import Any, Iterator
 
 from alien_ink.device import AcceleratorInfo, collect_accelerator_info
-from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, EnvConfig
+from alien_ink.env import EnvConfig
 from alien_ink.log import detail, get_logger, step
 
 log = get_logger("wb")
 
 __all__ = [
-    "DEFAULT_WANDB_ENTITY",
-    "DEFAULT_WANDB_PROJECT",
     "build_run_config",
+    "require_wandb_identity",
     "resolve_wandb_root",
     "serialize_config",
     "set_wandb_dir",
     "wandb_run",
 ]
+
+
+def require_wandb_identity(
+    *,
+    entity: str | None,
+    project: str | None,
+) -> tuple[str, str]:
+    """Require explicit W&B entity and project (no silent defaults)."""
+    if not entity or not str(entity).strip():
+        raise ValueError(
+            "wandb_entity must be set explicitly when Weights & Biases is enabled"
+        )
+    if not project or not str(project).strip():
+        raise ValueError(
+            "wandb_project must be set explicitly when Weights & Biases is enabled"
+        )
+    return str(entity).strip(), str(project).strip()
 
 
 def serialize_config(obj: Any) -> dict[str, Any]:
@@ -62,7 +78,7 @@ def build_run_config(
 
     When ``configs`` has multiple entries, keys are namespaced as ``{name}.{field}``.
     A single entry is flattened without a prefix. Accelerator / software fields
-    are prefixed with ``accel.`` / ``sw.`` for easy W&B filtering across GPUs.
+    are prefixed with ``accel.`` / ``sw.`` for easy W&B filtering.
     """
     accel = accelerator or collect_accelerator_info(
         prefer_bf16=prefer_bf16,
@@ -129,6 +145,8 @@ def wandb_run(
     if not enabled:
         yield None
         return
+
+    entity, project = require_wandb_identity(entity=entity, project=project)
 
     import wandb  # lazy: keep wandb optional until a run is actually started
 

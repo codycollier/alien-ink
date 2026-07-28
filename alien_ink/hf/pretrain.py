@@ -1,4 +1,8 @@
-"""High-level GPT-2 causal-LM pretraining recipes on Hugging Face datasets."""
+"""High-level causal-LM pretraining on Hugging Face datasets.
+
+Composes data + architecture + trainer configs. Defaults assume a local GPU
+(Mist / RTX 3070 ~8 GB): microbatch 2, gradient accumulation 16, block 1024.
+"""
 
 from __future__ import annotations
 
@@ -9,20 +13,15 @@ from datasets import IterableDataset
 from transformers import set_seed
 
 from alien_ink.device import collect_accelerator_info, distributed_world_size
-from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, load_env
+from alien_ink.env import load_env
 from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
-from alien_ink.hf.launch import (
-    launch_tpu,
-    should_auto_launch_tpu,
-    warn_if_tpu_single_process,
-)
 from alien_ink.hf.metrics import (
     build_run_config_payload,
     collect_software_versions,
     count_model_params,
     save_run_config,
 )
-from alien_ink.hf.model import Gpt2ArchConfig, build_model_and_tokenizer
+from alien_ink.hf.model import CausalLmArchConfig, build_model_and_tokenizer, gpt2_arch
 from alien_ink.hf.tok import tokenize_and_chunk
 from alien_ink.hf.trainer import (
     CausalLmTrainerConfig,
@@ -32,21 +31,29 @@ from alien_ink.hf.trainer import (
     train_and_save,
 )
 from alien_ink.log import banner, blank, detail, get_logger, header, step
-from alien_ink.wb import build_run_config, set_wandb_dir, wandb_run
+from alien_ink.wb import build_run_config, require_wandb_identity, set_wandb_dir, wandb_run
 
 log = get_logger("hf.pretrain")
 
+# Mist RTX 3070 (~8 GB) batch recipe: effective batch = 2 * 16 = 32.
+_MIST_TRAIN_BATCH = 2
+_MIST_EVAL_BATCH = 2
+_MIST_GRAD_ACCUM = 16
+
 
 @dataclass(frozen=True)
-class Gpt2PretrainConfig:
-    """Composable config for from-scratch GPT-2 pretraining on a Hub text corpus."""
+class PretrainConfig:
+    """Composable config for from-scratch causal-LM pretraining on a Hub corpus."""
 
     data: PretrainDataConfig
-    arch: Gpt2ArchConfig = field(default_factory=Gpt2ArchConfig)
+    arch: CausalLmArchConfig = field(default_factory=gpt2_arch)
     trainer: CausalLmTrainerConfig = field(
         default_factory=lambda: CausalLmTrainerConfig(
-            output_dir=Path.cwd() / "output" / "gpt2-pretrain",
-            run_name="gpt2-pretrain",
+            output_dir=Path.cwd() / "output" / "pretrain",
+            run_name="pretrain",
+            per_device_train_batch_size=_MIST_TRAIN_BATCH,
+            per_device_eval_batch_size=_MIST_EVAL_BATCH,
+            gradient_accumulation_steps=_MIST_GRAD_ACCUM,
         )
     )
 
@@ -61,32 +68,36 @@ class Gpt2PretrainConfig:
             )
 
 
+# Back-compat alias.
+Gpt2PretrainConfig = PretrainConfig
+
+
 def with_trainer(
-    config: Gpt2PretrainConfig,
+    config: PretrainConfig,
     **trainer_overrides,
-) -> Gpt2PretrainConfig:
+) -> PretrainConfig:
     """Return ``config`` with selected ``CausalLmTrainerConfig`` fields replaced."""
     return replace(config, trainer=replace(config.trainer, **trainer_overrides))
 
 
 def with_data(
-    config: Gpt2PretrainConfig,
+    config: PretrainConfig,
     **data_overrides,
-) -> Gpt2PretrainConfig:
+) -> PretrainConfig:
     """Return ``config`` with selected ``PretrainDataConfig`` fields replaced."""
     return replace(config, data=replace(config.data, **data_overrides))
 
 
 def with_arch(
-    config: Gpt2PretrainConfig,
+    config: PretrainConfig,
     **arch_overrides,
-) -> Gpt2PretrainConfig:
-    """Return ``config`` with selected ``Gpt2ArchConfig`` fields replaced."""
+) -> PretrainConfig:
+    """Return ``config`` with selected ``CausalLmArchConfig`` fields replaced."""
     return replace(config, arch=replace(config.arch, **arch_overrides))
 
 
 def resolve_use_wandb(
-    config: Gpt2PretrainConfig,
+    config: PretrainConfig,
     use_wandb: bool | None,
 ) -> bool:
     """Resolve whether to start a W&B run (explicit flag wins over ``report_to``)."""
@@ -103,8 +114,8 @@ def prepare_lm_datasets(
 ):
     """Load/tokenize a Hub corpus into train and eval LM blocks.
 
-    Train is an iterable stream when ``max_train_samples`` is unset, otherwise
-    a materialized map-style dataset. Eval is always map-style.
+    Train is an iterable stream when ``mode='stream'``, otherwise a
+    materialized map-style dataset. Eval is always map-style.
     """
     train_raw, eval_raw = load_train_eval(data, verbose=verbose)
     if verbose:
@@ -144,9 +155,9 @@ def log_pretrain_banner(
     *,
     title: str,
     run_label: str,
-    config: Gpt2PretrainConfig,
+    config: PretrainConfig,
 ):
-    """Log run header / accelerator info; return ``AcceleratorInfo``."""
+    """Log run header / accelerator info; return ``(AcceleratorInfo, tokens_per_step)``."""
     header(logger=log)
     banner(title, logger=log)
     step(f"run: {run_label}", logger=log)
@@ -176,9 +187,8 @@ def log_pretrain_banner(
             + (f", cuDNN {accel.cudnn_version}" if accel.cudnn_version else ""),
             logger=log,
         )
-    if accel.device == "xla":
-        detail(f"XLA/TPU cores: {accel.gpu_count}", logger=log)
     detail(f"torch {accel.torch_version}", logger=log)
+    detail(f"model family: {config.arch.family}", logger=log)
     if config.trainer.uses_epochs():
         step(
             f"Training epochs: {config.trainer.num_train_epochs:g} "
@@ -197,72 +207,34 @@ def log_pretrain_banner(
     return accel, tps
 
 
-def pretrain_gpt2(
-    config: Gpt2PretrainConfig,
+def pretrain(
+    config: PretrainConfig,
     *,
     run_label: str = "regular",
-    title: str = "GPT-2 from scratch",
+    title: str = "Causal LM from scratch",
     env_files: tuple[Path, ...] | None = None,
-    wandb_entity_fallback: str = DEFAULT_WANDB_ENTITY,
-    wandb_project_fallback: str = DEFAULT_WANDB_PROJECT,
     wandb_entity: str | None = None,
     wandb_project: str | None = None,
     wandb_name: str | None = None,
     use_wandb: bool | None = None,
     resume_from_checkpoint: str | Path | bool | None = None,
-    tpu_launch: bool | None = None,
-    tpu_num_processes: int | None = None,
 ):
     """End-to-end: env → data → model → trainer → optional W&B train/save.
 
     Returns ``(trainer, run_summary)`` when training finishes (summary may be
     non-``None`` even on interrupt; failures still write a summary then re-raise).
 
-    Pass ``wandb_entity`` / ``wandb_project`` / ``wandb_name`` explicitly (CLI
-    flags or kwargs) to override code defaults. These are not read from the
-    environment.
+    When W&B is enabled, ``wandb_entity`` and ``wandb_project`` must be passed
+    explicitly (no code defaults). ``wandb_name`` overrides ``trainer.run_name``.
 
     Set ``use_wandb=False`` (or ``trainer.report_to="none"``) to skip Weights &
     Biases entirely. ``resume_from_checkpoint`` follows HF Trainer semantics
     (path, ``True`` for latest checkpoint, or ``None``).
 
-    On a Colab/Kaggle TPU notebook, training is auto-wrapped in Accelerate's
-    ``notebook_launcher`` (override with ``tpu_launch=False``). That path
-    returns ``(None, None)`` because launcher workers do not propagate the
-    trainer object back to the parent kernel.
-
     Always writes ``run_config.json`` before training and ``run_summary.json``
     when training stops (completed, interrupted, or failed) under
     ``trainer.output_dir``.
     """
-    if should_auto_launch_tpu(force=tpu_launch):
-        launch_kwargs = dict(
-            config=config,
-            run_label=run_label,
-            title=title,
-            env_files=env_files,
-            wandb_entity_fallback=wandb_entity_fallback,
-            wandb_project_fallback=wandb_project_fallback,
-            wandb_entity=wandb_entity,
-            wandb_project=wandb_project,
-            wandb_name=wandb_name,
-            use_wandb=use_wandb,
-            resume_from_checkpoint=resume_from_checkpoint,
-            tpu_launch=False,
-            tpu_num_processes=tpu_num_processes,
-        )
-
-        def _tpu_worker() -> None:
-            pretrain_gpt2(**launch_kwargs)
-
-        mixed = "bf16" if config.trainer.prefer_bf16 else "no"
-        launch_tpu(
-            _tpu_worker,
-            num_processes=tpu_num_processes,
-            mixed_precision=mixed,
-        )
-        return None, None
-
     env_files = env_files if env_files is not None else (Path.cwd() / ".env",)
 
     if resume_from_checkpoint is not None:
@@ -272,11 +244,13 @@ def pretrain_gpt2(
     if not want_wandb and not reporting_disabled(config.trainer.report_to):
         config = with_trainer(config, report_to="none")
 
+    if want_wandb:
+        require_wandb_identity(entity=wandb_entity, project=wandb_project)
+
     config.validate()
     accel, tokens_per_step = log_pretrain_banner(
         title=title, run_label=run_label, config=config
     )
-    warn_if_tpu_single_process()
 
     blank(logger=log)
     step("Loading credentials...", logger=log)
@@ -284,8 +258,6 @@ def pretrain_gpt2(
         *env_files,
         wandb_entity=wandb_entity,
         wandb_project=wandb_project,
-        wandb_entity_fallback=wandb_entity_fallback,
-        wandb_project_fallback=wandb_project_fallback,
     )
 
     if wandb_name and wandb_name != config.trainer.run_name:
@@ -298,7 +270,6 @@ def pretrain_gpt2(
     model_size = count_model_params(model, vocab_size=tokenizer.vocab_size)
     train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
 
-    # Persist the fully resolved recipe + hardware fingerprint before train.
     config_payload = build_run_config_payload(
         run_label=run_label,
         run_name=config.trainer.run_name,
@@ -334,8 +305,8 @@ def pretrain_gpt2(
 
     blank(logger=log)
     with wandb_run(
-        entity=env.wandb_entity,
-        project=env.wandb_project,
+        entity=env.wandb_entity or "",
+        project=env.wandb_project or "",
         name=config.trainer.run_name,
         config=run_config,
         dir=config.trainer.output_dir,
@@ -353,3 +324,8 @@ def pretrain_gpt2(
             model_size=model_size,
             accelerator=accel,
         )
+
+
+def pretrain_gpt2(config: PretrainConfig, **kwargs):
+    """Back-compat alias for ``pretrain``."""
+    return pretrain(config, **kwargs)

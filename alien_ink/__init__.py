@@ -12,7 +12,7 @@ try:
 except PackageNotFoundError:
     __version__ = "0.0.0"
 
-# Multi-line brand banner (starfield + wordmark). Logged at experiment start.
+# Multi-line brand banner (starfield + wordmark). Logged at run start.
 stars = rf"""
 -------------------------------------------------------------------------------
  ..   . *      .     .   * *. .        . .  .     .  *           `         .
@@ -33,7 +33,7 @@ Version: {__version__}
 -------------------------------------------------------------------------------
 """
 
-# Alias for the experiment header
+# Alias for the run header
 HEADER = stars
 
 # Lazily expose selected submodules so ``import alien_ink; alien_ink.device``

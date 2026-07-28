@@ -5,8 +5,15 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 
-from alien_ink.env import DEFAULT_WANDB_ENTITY, DEFAULT_WANDB_PROJECT, EnvConfig
-from alien_ink.wb import build_run_config, serialize_config, wandb_run
+import pytest
+
+from alien_ink.env import EnvConfig
+from alien_ink.wb import (
+    build_run_config,
+    require_wandb_identity,
+    serialize_config,
+    wandb_run,
+)
 
 
 @dataclass
@@ -16,9 +23,18 @@ class _Tiny:
     values: tuple[int, ...]
 
 
-def test_default_wandb_entity_and_project():
-    assert DEFAULT_WANDB_ENTITY == "logbook"
-    assert DEFAULT_WANDB_PROJECT == "ink-explore"
+def test_require_wandb_identity_ok():
+    assert require_wandb_identity(entity="logbook", project="ink-explore") == (
+        "logbook",
+        "ink-explore",
+    )
+
+
+def test_require_wandb_identity_missing():
+    with pytest.raises(ValueError, match="wandb_entity"):
+        require_wandb_identity(entity=None, project="p")
+    with pytest.raises(ValueError, match="wandb_project"):
+        require_wandb_identity(entity="e", project="  ")
 
 
 def test_serialize_config_stringifies_paths():
@@ -86,3 +102,16 @@ def test_wandb_run_disabled_does_not_import_wandb():
         enabled=False,
     ) as run:
         assert run is None
+
+
+def test_wandb_run_enabled_requires_identity(tmp_path):
+    with pytest.raises(ValueError, match="wandb_entity"):
+        with wandb_run(
+            entity="",
+            project="p",
+            name="n",
+            config={},
+            dir=tmp_path,
+            enabled=True,
+        ):
+            pass

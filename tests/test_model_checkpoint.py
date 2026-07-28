@@ -49,3 +49,14 @@ def test_arch_validate_rejects_bad_head_divisibility():
 
 def test_arch_validate_ok():
     Gpt2ArchConfig().validate()
+
+
+def test_arch_families():
+    from alien_ink.hf.model import gemma_arch, gpt2_arch, gpt_neox_arch
+
+    assert gpt2_arch().family == "gpt2"
+    assert gpt_neox_arch().family == "gpt_neox"
+    gemma = gemma_arch()
+    assert gemma.family == "gemma"
+    assert gemma.n_embd == 512
+    gemma.validate()
