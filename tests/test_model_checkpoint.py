@@ -60,3 +60,18 @@ def test_arch_families():
     assert gemma.family == "gemma"
     assert gemma.n_embd == 512
     gemma.validate()
+
+
+def test_gemma_sets_num_key_value_heads():
+    """GemmaConfig defaults kv heads to 16; mist-sized builds must override."""
+    from alien_ink.hf.model import build_model_from_scratch, gemma_arch
+
+    class _FakeTok:
+        vocab_size = 256
+
+        def __len__(self) -> int:
+            return 256
+
+    model = build_model_from_scratch(_FakeTok(), gemma_arch(n_layer=1), verbose=False)
+    assert model.config.num_attention_heads == 8
+    assert model.config.num_key_value_heads == 8

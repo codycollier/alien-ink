@@ -171,12 +171,15 @@ def build_model_from_scratch(
     elif arch.family == "gemma":
         head_dim = arch.head_dim or (arch.n_embd // arch.n_head)
         intermediate = arch.intermediate_size or (4 * arch.n_embd)
+        # GemmaConfig defaults num_key_value_heads=16 even when
+        # num_attention_heads is overridden; mismatch breaks SDPA.
         model_config = GemmaConfig(
             vocab_size=vocab_size,
             max_position_embeddings=arch.n_positions,
             hidden_size=arch.n_embd,
             num_hidden_layers=arch.n_layer,
             num_attention_heads=arch.n_head,
+            num_key_value_heads=arch.n_head,
             head_dim=head_dim,
             intermediate_size=intermediate,
         )
