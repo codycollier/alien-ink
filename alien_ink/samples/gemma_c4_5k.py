@@ -58,9 +58,10 @@ RECIPE = Recipe(
     ),
     hardware=HardwareConfig(
         label="mist-rtx-3070",
-        per_device_train_batch_size=2,
-        per_device_eval_batch_size=2,
-        gradient_accumulation_steps=16,
+        # batch=2 OOMs on 8 GB: Gemma vocab (~256k) materializes ~2 GiB logits.
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=32,
         dataloader_num_workers=2,
         prefer_bf16=True,
         prefer_fp16=True,
