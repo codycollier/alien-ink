@@ -1,13 +1,13 @@
 #!/usr/bin/env python
-"""Pretrain GPT-2 from scratch for 5k steps on streamed WikiText-103.
+"""Pretrain a Mist-sized Gemma from scratch for 5k steps on streamed C4.
 
-Sized for Mist (local RTX 3070, ~8 GB). Every recipe field is spelled out
-below for reproducibility — change values in place, do not rely on module
-defaults.
+Uses a small Gemma architecture (not full Gemma-2B) so training fits on Mist
+(local RTX 3070, ~8 GB). Every recipe field is spelled out below for
+reproducibility — change values in place, do not rely on module defaults.
 
-  python -m alien_ink.samples.gpt2_wikitext_5k
+Requires Hugging Face access to the Gemma tokenizer (`google/gemma-2b`).
 
-
+  python -m alien_ink.samples.gemma_c4_5k
 """
 
 from __future__ import annotations
@@ -22,18 +22,18 @@ from alien_ink.hf.recipe import (
 )
 
 RECIPE = Recipe(
-    run_name="gpt2-wikitext-5k-mist",
-    title="GPT-2 from scratch on WikiText-103 (5k steps)",
+    run_name="gemma-c4-5k-mist",
+    title="Gemma (Mist-sized) from scratch on C4 (5k steps)",
     data=PretrainDataConfig(
         source=HubTextSource(
-            dataset="Salesforce/wikitext",
-            name="wikitext-103-v1",
+            dataset="allenai/c4",
+            name="en",
             split="train",
             text_column="text",
         ),
         eval_source=HubTextSource(
-            dataset="Salesforce/wikitext",
-            name="wikitext-103-v1",
+            dataset="allenai/c4",
+            name="en",
             split="validation",
             text_column="text",
         ),
@@ -46,14 +46,14 @@ RECIPE = Recipe(
         seed=101,
     ),
     model=CausalLmArchConfig(
-        family="gpt2",
-        tokenizer_name="gpt2",
+        family="gemma",
+        tokenizer_name="google/gemma-2b",
         n_positions=1024,
-        n_embd=768,
-        n_layer=12,
-        n_head=12,
-        head_dim=None,
-        intermediate_size=None,
+        n_embd=512,
+        n_layer=8,
+        n_head=8,
+        head_dim=64,
+        intermediate_size=2048,
         use_cache=False,
     ),
     hardware=HardwareConfig(
@@ -69,7 +69,7 @@ RECIPE = Recipe(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="gpt2-wikitext-5k-mist",
+        name="gemma-c4-5k-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
@@ -81,7 +81,7 @@ RECIPE = Recipe(
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
         seed=101,
-        logging_steps=5,
+        logging_steps=50,
         eval_steps=100,
         save_steps=100,
         save_total_limit=2,
