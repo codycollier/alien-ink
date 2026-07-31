@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from alien_ink.device import AcceleratorInfo
+from alien_ink.com.device import AcceleratorInfo
 from alien_ink.hf.metrics import (
     ModelSize,
     build_run_summary,

@@ -2,9 +2,7 @@
 
 from __future__ import annotations
 
-from importlib import import_module
 from importlib.metadata import PackageNotFoundError, version
-from typing import Any
 
 
 try:
@@ -35,17 +33,3 @@ Version: {__version__}
 
 # Alias for the run header
 HEADER = stars
-
-# Lazily expose selected submodules so ``import alien_ink; alien_ink.device``
-# works without pulling torch into every import of the package root.
-_LAZY_SUBMODULES = frozenset({"device"})
-
-
-def __getattr__(name: str) -> Any:
-    if name in _LAZY_SUBMODULES:
-        return import_module(f".{name}", __name__)
-    raise AttributeError(f"module {__name__!r} has no attribute {name!r}")
-
-
-def __dir__() -> list[str]:
-    return sorted({*globals(), *_LAZY_SUBMODULES})

@@ -15,7 +15,7 @@ from transformers import (
     TrainingArguments,
 )
 
-from alien_ink.device import (
+from alien_ink.com.device import (
     AcceleratorInfo,
     device_info,
     distributed_world_size,
@@ -29,7 +29,7 @@ from alien_ink.hf.metrics import (
     push_summary_to_wandb,
     save_run_summary,
 )
-from alien_ink.log import blank, detail, get_logger, step
+from alien_ink.com.log import blank, detail, get_logger, step
 
 log = get_logger("hf.trainer")
 

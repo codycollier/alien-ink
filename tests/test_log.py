@@ -7,8 +7,9 @@ import logging
 
 import pytest
 
-from alien_ink import HEADER, log as ink_log
-from alien_ink.log import banner, blank, configure, detail, get_logger, header, step
+from alien_ink import HEADER
+from alien_ink.com import log as ink_log
+from alien_ink.com.log import banner, blank, configure, detail, get_logger, header, step
 
 
 @pytest.fixture(autouse=True)

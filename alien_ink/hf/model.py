@@ -23,8 +23,8 @@ from transformers import (
     PreTrainedTokenizerBase,
 )
 
-from alien_ink.device import move_module_to_device
-from alien_ink.log import detail, get_logger, step
+from alien_ink.com.device import move_module_to_device
+from alien_ink.com.log import detail, get_logger, step
 
 log = get_logger("hf.model")
 

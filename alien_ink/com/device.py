@@ -214,8 +214,10 @@ def introspect(
     Safe in any environment (CPU, CUDA, MPS). Intended usage::
 
         import alien_ink
+        from alien_ink.com import device
+
         print(alien_ink.stars)
-        print(alien_ink.device.introspect())
+        print(device.introspect())
 
     Pass ``info`` to reuse a previously collected :class:`AcceleratorInfo`.
     """

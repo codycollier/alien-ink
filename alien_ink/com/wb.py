@@ -8,9 +8,9 @@ from dataclasses import asdict, fields
 from pathlib import Path
 from typing import Any, Iterator
 
-from alien_ink.device import AcceleratorInfo, collect_accelerator_info
-from alien_ink.env import EnvConfig
-from alien_ink.log import detail, get_logger, step
+from alien_ink.com.device import AcceleratorInfo, collect_accelerator_info
+from alien_ink.com.env import EnvConfig
+from alien_ink.com.log import detail, get_logger, step
 
 log = get_logger("wb")
 

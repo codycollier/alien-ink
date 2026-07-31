@@ -7,8 +7,8 @@ from pathlib import Path
 
 import pytest
 
-from alien_ink.env import EnvConfig
-from alien_ink.wb import (
+from alien_ink.com.env import EnvConfig
+from alien_ink.com.wb import (
     build_run_config,
     require_wandb_identity,
     serialize_config,
@@ -47,7 +47,7 @@ def test_serialize_config_dict():
 
 
 def test_build_run_config_namespaces_multiple(monkeypatch):
-    from alien_ink.device import AcceleratorInfo
+    from alien_ink.com.device import AcceleratorInfo
 
     fake = AcceleratorInfo(
         device="cpu",
@@ -66,7 +66,7 @@ def test_build_run_config_namespaces_multiple(monkeypatch):
         python_version="3.11.0",
         peak_tflops=None,
     )
-    monkeypatch.setattr("alien_ink.wb.collect_accelerator_info", lambda **_: fake)
+    monkeypatch.setattr("alien_ink.com.wb.collect_accelerator_info", lambda **_: fake)
     env = EnvConfig(
         hf_token=None,
         wandb_api_key=None,

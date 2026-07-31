@@ -8,7 +8,7 @@ from pathlib import Path
 
 from dotenv import load_dotenv
 
-from alien_ink.log import detail, get_logger
+from alien_ink.com.log import detail, get_logger
 
 log = get_logger("env")
 

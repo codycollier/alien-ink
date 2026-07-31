@@ -17,7 +17,7 @@ from typing import Literal
 
 from datasets import Dataset, IterableDataset, load_dataset
 
-from alien_ink.log import detail, get_logger, step
+from alien_ink.com.log import detail, get_logger, step
 
 log = get_logger("hf.ds")
 

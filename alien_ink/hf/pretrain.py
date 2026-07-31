@@ -15,12 +15,12 @@ from typing import Any
 from datasets import IterableDataset
 from transformers import set_seed
 
-from alien_ink.device import (
+from alien_ink.com.device import (
     collect_accelerator_info,
     distributed_world_size,
     introspect,
 )
-from alien_ink.env import load_env
+from alien_ink.com.env import load_env
 from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
 from alien_ink.hf.metrics import (
     build_run_config_payload,
@@ -37,8 +37,8 @@ from alien_ink.hf.trainer import (
     tokens_per_optimizer_step,
     train_and_save,
 )
-from alien_ink.log import banner, blank, detail, get_logger, header, step
-from alien_ink.wb import build_run_config, require_wandb_identity, set_wandb_dir, wandb_run
+from alien_ink.com.log import banner, blank, detail, get_logger, header, step
+from alien_ink.com.wb import build_run_config, require_wandb_identity, set_wandb_dir, wandb_run
 
 log = get_logger("hf.pretrain")
 

@@ -6,7 +6,7 @@ import os
 import sys
 import types
 
-from alien_ink import env as env_mod
+from alien_ink.com import env as env_mod
 
 
 def _install_fake_colab(monkeypatch, secrets: dict[str, str]):

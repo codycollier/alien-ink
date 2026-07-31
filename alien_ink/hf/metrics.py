@@ -9,8 +9,8 @@ from importlib.metadata import PackageNotFoundError, version
 from pathlib import Path
 from typing import Any
 
-from alien_ink.device import AcceleratorInfo
-from alien_ink.log import banner, detail, get_logger, step
+from alien_ink.com.device import AcceleratorInfo
+from alien_ink.com.log import banner, detail, get_logger, step
 
 log = get_logger("hf.metrics")
 
@@ -147,7 +147,7 @@ def build_run_config_payload(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """JSON-serializable resolved experiment config for offline reproduction."""
-    from alien_ink.wb import serialize_config
+    from alien_ink.com.wb import serialize_config
 
     payload: dict[str, Any] = {
         "run_label": run_label,

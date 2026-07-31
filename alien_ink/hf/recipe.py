@@ -20,7 +20,7 @@ from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.model import CausalLmArchConfig, gpt2_arch
 from alien_ink.hf.pretrain import PretrainConfig, pretrain
 from alien_ink.hf.trainer import CausalLmTrainerConfig
-from alien_ink.wb import require_wandb_identity
+from alien_ink.com.wb import require_wandb_identity
 
 __all__ = [
     "HardwareConfig",

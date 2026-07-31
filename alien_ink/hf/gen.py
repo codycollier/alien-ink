@@ -9,10 +9,10 @@ from pathlib import Path
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
-from alien_ink.device import device_info, torch_device
+from alien_ink.com.device import device_info, torch_device
 from alien_ink.hf.ds import HubTextSource, load_text_prompts
 from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
-from alien_ink.log import banner, blank, get_logger, header, step
+from alien_ink.com.log import banner, blank, get_logger, header, step
 
 log = get_logger("hf.gen")
 

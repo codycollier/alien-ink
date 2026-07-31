@@ -7,6 +7,6 @@ Submodules:
   trainer  — TrainingArguments / Trainer builders
   metrics  — FLOPs / throughput / run_config + run_summary artifacts
   recipe   — Recipe dataclass (data / model / hardware / wandb / schedule)
-  pretrain — causal-LM pretrain entrypoint (optional W&B via alien_ink.wb)
+  pretrain — causal-LM pretrain entrypoint (optional W&B via alien_ink.com.wb)
   gen      — generation / spot-check
 """

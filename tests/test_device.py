@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-import alien_ink.device as device_mod
+import alien_ink.com.device as device_mod
 
 
 def test_distributed_world_size_defaults_to_one(monkeypatch):
