@@ -224,7 +224,7 @@ output/<run_name>/
 | `alien_ink.zdeck.pre_gemma_c4_50k_mist` | Gemma | C4 English (stream, 50k steps) |
 | `alien_ink.zdeck.pre_gemma_wikitext_4ep_mist` | Gemma | WikiText-103 (complete, 4 epochs) |
 | `alien_ink/zdeck/pre_gpt-neox_wikitext_4ep_mist.py` | GPT-NeoX | WikiText-103 (complete, 4 epochs) |
-| `alien_ink.zdeck.baseline_perf_mist` | GPT-NeoX | WikiText-103 (complete, 0.25 epochs) |
+| `alien_ink.zdeck.baseline_perf_mist` | GPT-2 | WikiText-103 (complete, 0.25 epochs) |
 
 ### Running training
 

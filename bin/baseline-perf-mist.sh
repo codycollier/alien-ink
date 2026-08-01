@@ -3,7 +3,7 @@
 #
 #   ./bin/baseline_perf_mist.sh
 #
-# GPT-NeoX from scratch, 0.25 epochs on WikiText-103 (complete). W&B entity /
+# GPT-2 from scratch, 0.25 epochs on WikiText-103 (complete). W&B entity /
 # project / name are set inside the zdeck module.
 set -euo pipefail
 
