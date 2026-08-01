@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Pretrain Mist-sized GPT-2 from scratch for 0.25 epochs on WikiText-103.
+"""Pretrain Mist-sized GPT-NeoX from scratch for 0.25 epochs on WikiText-103.
 
 Performance-baseline formula: short fractional-epoch run on fully materialized
 WikiText (``mode="complete"``) so wall-clock and throughput are comparable
@@ -22,7 +22,7 @@ from alien_ink.hf.manifest import (
 
 MANIFEST = Manifest(
     run_name="baseline-perf-mist",
-    title="GPT-2 from scratch on WikiText-103 (0.25 epochs, baseline perf)",
+    title="GPT-NeoX from scratch on WikiText-103 (0.25 epochs, baseline perf)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
@@ -46,14 +46,14 @@ MANIFEST = Manifest(
         seed=101,
     ),
     model=CausalLmArchConfig(
-        family="gpt-2",
-        tokenizer_name="gpt2",
+        family="gpt-neox",
+        tokenizer_name="EleutherAI/gpt-neox-20b",
         n_positions=1024,
         n_embd=768,
         n_layer=12,
         n_head=12,
         head_dim=None,
-        intermediate_size=None,
+        intermediate_size=3072,
         use_cache=False,
     ),
     hardware=HardwareConfig(

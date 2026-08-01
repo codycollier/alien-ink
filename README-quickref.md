@@ -29,7 +29,7 @@ python -m alien_ink.zdeck.pre_gemma_c4_5k_mist            # Gemma (Mist-sized), 
 python -m alien_ink.zdeck.pre_gemma_c4_50k_mist           # Gemma (Mist-sized), 50k steps, C4 stream
 python -m alien_ink.zdeck.pre_gemma_wikitext_4ep_mist     # Gemma (Mist-sized), 4 epochs, WikiText complete
 python alien_ink/zdeck/pre_gpt-neox_wikitext_4ep_mist.py  # GPT-NeoX, 4 epochs, WikiText complete
-python -m alien_ink.zdeck.baseline_perf_mist                 # GPT-2, 0.25 epochs, WikiText complete
+python -m alien_ink.zdeck.baseline_perf_mist                 # GPT-NeoX, 0.25 epochs, WikiText complete
 ```
 
 Or background one with `./bin/pretrain_mist.sh` (edit the script to select a module).
