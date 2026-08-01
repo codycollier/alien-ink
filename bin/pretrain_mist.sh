@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-# Background pretrain sample on Mist (local RTX 3070). Logs under output/.
+# Background pretrain zdeck program on Mist (local RTX 3070). Logs under output/.
 #
-# Uncomment one sample block below, then:
+# Uncomment one zdeck block below, then:
 #   ./bin/pretrain_mist.sh
 #
-# W&B entity / project / name are set inside each sample module.
+# W&B entity / project / name are set inside each zdeck module.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 mkdir -p output
 
-# --- sample (uncomment one) ---------------------------------------------------
-# module="alien_ink.samples.gpt2_wikipedia_5k"
+# --- zdeck (uncomment one) ---------------------------------------------------
+# module="alien_ink.zdeck.gpt2_wikipedia_5k"
 # name="gpt2-wikipedia-5k-mist"
 
-# module="alien_ink.samples.gpt2_wikitext_5k"
+# module="alien_ink.zdeck.gpt2_wikitext_5k"
 # name="gpt2-wikitext-5k-mist"
 
-module="alien_ink.samples.gemma_c4_5k"
+module="alien_ink.zdeck.gemma_c4_5k"
 name="gemma-c4-5k-mist"
 # ------------------------------------------------------------------------------
 

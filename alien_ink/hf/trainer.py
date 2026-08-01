@@ -347,7 +347,7 @@ def build_causal_lm_trainer(
     has_eval = has_eval_examples(eval_dataset)
     # Materialized epoch runs: derive log/eval/save from dataset length so we
     # hit ~5 evals per epoch (including epoch end). Streamed / step-capped runs
-    # already carry an explicit cadence from the recipe.
+    # already carry an explicit cadence from the manifest.
     if config.uses_epochs():
         try:
             num_examples = len(train_dataset)

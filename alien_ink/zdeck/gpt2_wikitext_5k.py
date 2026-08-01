@@ -1,35 +1,42 @@
 #!/usr/bin/env python
-"""Pretrain GPT-2 from scratch for 5k steps on streamed English Wikipedia.
+"""Pretrain GPT-2 from scratch for 5k steps on streamed WikiText-103.
 
-Sized for Mist (local RTX 3070, ~8 GB). Every recipe field is spelled out
+Sized for Mist (local RTX 3070, ~8 GB). Every manifest field is spelled out
 below for reproducibility — change values in place, do not rely on module
 defaults.
 
-  python -m alien_ink.samples.gpt2_wikipedia_5k
+  python -m alien_ink.zdeck.gpt2_wikitext_5k
+
+
 """
 
 from __future__ import annotations
 
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig
 from alien_ink.hf.model import CausalLmArchConfig
-from alien_ink.hf.recipe import (
+from alien_ink.hf.manifest import (
     HardwareConfig,
-    Recipe,
+    Manifest,
     ScheduleConfig,
     WandbConfig,
 )
 
-RECIPE = Recipe(
-    run_name="gpt2-wikipedia-5k-mist",
-    title="GPT-2 from scratch on English Wikipedia (5k steps)",
+MANIFEST = Manifest(
+    run_name="gpt2-wikitext-5k-mist",
+    title="GPT-2 from scratch on WikiText-103 (5k steps)",
     data=PretrainDataConfig(
         source=HubTextSource(
-            dataset="wikimedia/wikipedia",
-            name="20231101.en",
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
             split="train",
             text_column="text",
         ),
-        eval_source=None,
+        eval_source=HubTextSource(
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
+            split="validation",
+            text_column="text",
+        ),
         mode="stream",
         max_eval_samples=1_000,
         max_train_samples=None,
@@ -62,7 +69,7 @@ RECIPE = Recipe(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="gpt2-wikipedia-5k-mist",
+        name="gpt2-wikitext-5k-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
@@ -85,7 +92,7 @@ RECIPE = Recipe(
 
 
 def main() -> None:
-    RECIPE.train()
+    MANIFEST.train()
 
 
 if __name__ == "__main__":

@@ -1,8 +1,8 @@
-"""Composable training recipes: dataset + model + hardware + W&B + schedule.
+"""Composable training manifests: dataset + model + hardware + W&B + schedule.
 
-A :class:`Recipe` is the explicit, structured source of truth for a training
-program. Samples should be a recipe literal plus a thin ``main`` that calls
-:meth:`Recipe.train`.
+A :class:`Manifest` is the explicit, structured source of truth for a training
+program. Zdeck programs should be a manifest literal plus a thin ``main`` that
+calls :meth:`Manifest.train`.
 
 ``HardwareConfig`` is the GPU-tunable subset (batch / accum / precision /
 workers). Swap or ``.with_hardware(...)`` when moving machines; leave dataset,
@@ -24,7 +24,7 @@ from alien_ink.com.wb import require_wandb_identity
 
 __all__ = [
     "HardwareConfig",
-    "Recipe",
+    "Manifest",
     "ScheduleConfig",
     "WandbConfig",
     "mist_rtx_3070",
@@ -125,7 +125,7 @@ class WandbConfig:
     enabled: bool = True
 
     def resolved_name(self, run_name: str) -> str:
-        """W&B run name: explicit ``name`` when set, otherwise the recipe run name."""
+        """W&B run name: explicit ``name`` when set, otherwise the manifest run name."""
         return self.name if self.name else run_name
 
     def require_identity(self) -> tuple[str, str]:
@@ -193,8 +193,8 @@ class ScheduleConfig:
 
 
 @dataclass(frozen=True)
-class Recipe:
-    """Top-level training recipe: data ⊕ model ⊕ hardware ⊕ wandb ⊕ schedule.
+class Manifest:
+    """Top-level training manifest: data ⊕ model ⊕ hardware ⊕ wandb ⊕ schedule.
 
     Materializes a :class:`~alien_ink.hf.pretrain.PretrainConfig` via
     :meth:`to_pretrain_config`. Compose ablations with :meth:`variant`,
@@ -212,26 +212,26 @@ class Recipe:
     # Escape hatches for rarely swept CausalLmTrainerConfig fields (adam betas, …).
     trainer_overrides: Mapping[str, Any] = field(default_factory=dict)
 
-    def variant(self, **changes: Any) -> Recipe:
-        """Return a copy with selected top-level recipe fields replaced."""
+    def variant(self, **changes: Any) -> Manifest:
+        """Return a copy with selected top-level manifest fields replaced."""
         return replace(self, **changes)
 
-    def with_hardware(self, **kw: Any) -> Recipe:
+    def with_hardware(self, **kw: Any) -> Manifest:
         return replace(self, hardware=replace(self.hardware, **kw))
 
-    def with_data(self, **kw: Any) -> Recipe:
+    def with_data(self, **kw: Any) -> Manifest:
         return replace(self, data=replace(self.data, **kw))
 
-    def with_model(self, **kw: Any) -> Recipe:
+    def with_model(self, **kw: Any) -> Manifest:
         return replace(self, model=replace(self.model, **kw))
 
-    def with_wandb(self, **kw: Any) -> Recipe:
+    def with_wandb(self, **kw: Any) -> Manifest:
         return replace(self, wandb=replace(self.wandb, **kw))
 
-    def with_schedule(self, **kw: Any) -> Recipe:
+    def with_schedule(self, **kw: Any) -> Manifest:
         return replace(self, schedule=replace(self.schedule, **kw))
 
-    def with_trainer_knobs(self, **kw: Any) -> Recipe:
+    def with_trainer_knobs(self, **kw: Any) -> Manifest:
         """Merge extra trainer fields applied last when materializing."""
         return replace(
             self,
@@ -258,7 +258,7 @@ class Recipe:
             )
 
     def to_pretrain_config(self) -> PretrainConfig:
-        """Materialize the runtime :class:`PretrainConfig` this recipe describes."""
+        """Materialize the runtime :class:`PretrainConfig` this manifest describes."""
         self.validate()
         cadence = self.schedule.cadence()
         trainer = CausalLmTrainerConfig(
@@ -292,13 +292,13 @@ class Recipe:
         return cfg
 
     def train(self, **pretrain_kwargs: Any):
-        """Run pretraining from this recipe.
+        """Run pretraining from this manifest.
 
         Extra kwargs are forwarded to :func:`~alien_ink.hf.pretrain.pretrain`
         (e.g. ``resume_from_checkpoint``, ``run_label``, ``env_files``).
         """
         config = self.to_pretrain_config()
-        run_label = pretrain_kwargs.pop("run_label", "sample")
+        run_label = pretrain_kwargs.pop("run_label", "zdeck")
         return pretrain(
             config,
             title=self.title,

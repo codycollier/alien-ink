@@ -1,8 +1,8 @@
 """High-level causal-LM pretraining on Hugging Face datasets.
 
 Composes data + architecture + trainer configs. Prefer defining a
-:class:`~alien_ink.hf.recipe.Recipe` in sample programs; this module is the
-runtime orchestrator that recipes materialize into.
+:class:`~alien_ink.hf.manifest.Manifest` in zdeck programs; this module is the
+runtime orchestrator that manifests materialize into.
 """
 
 from __future__ import annotations
@@ -224,7 +224,7 @@ def pretrain(
     Biases entirely. ``resume_from_checkpoint`` follows HF Trainer semantics
     (path, ``True`` for latest checkpoint, or ``None``).
 
-    ``extra_configs`` are merged into the logged run config (e.g. recipe
+    ``extra_configs`` are merged into the logged run config (e.g. manifest
     ``hardware`` / ``schedule`` / ``wandb`` segments).
 
     Always writes ``run_config.json`` before training and ``run_summary.json``

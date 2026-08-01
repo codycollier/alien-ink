@@ -2,26 +2,26 @@
 """Pretrain a Mist-sized Gemma from scratch for 50k steps on streamed C4.
 
 Uses a small Gemma architecture (not full Gemma-2B) so training fits on Mist
-(local RTX 3070, ~8 GB). Every recipe field is spelled out below for
+(local RTX 3070, ~8 GB). Every manifest field is spelled out below for
 reproducibility — change values in place, do not rely on module defaults.
 
 Requires Hugging Face access to the Gemma tokenizer (`google/gemma-2b`).
 
-  python -m alien_ink.samples.gemma_c4_50k
+  python -m alien_ink.zdeck.gemma_c4_50k
 """
 
 from __future__ import annotations
 
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig
 from alien_ink.hf.model import CausalLmArchConfig
-from alien_ink.hf.recipe import (
+from alien_ink.hf.manifest import (
     HardwareConfig,
-    Recipe,
+    Manifest,
     ScheduleConfig,
     WandbConfig,
 )
 
-RECIPE = Recipe(
+MANIFEST = Manifest(
     run_name="gemma-c4-50k-mist",
     title="Gemma (Mist-sized) from scratch on C4 (50k steps)",
     data=PretrainDataConfig(
@@ -93,7 +93,7 @@ RECIPE = Recipe(
 
 
 def main() -> None:
-    RECIPE.train()
+    MANIFEST.train()
 
 
 if __name__ == "__main__":
