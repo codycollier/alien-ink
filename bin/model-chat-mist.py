@@ -1,9 +1,8 @@
 #!/usr/bin/env python
 """Interactive completion against a trained zdeck checkpoint on Mist (RTX 3070).
 
-Each turn is a fresh completion — no chat history. The hard-coded system prompt
-plus your typed line are sent as a single prompt; the model reply is printed
-clearly so you can spot-check quality.
+Each turn is a fresh prompt — no history. Type a sentence starter or fragment;
+the model continues it in plain text (suited to base LMs pretrained on raw corpus).
 
   ./bin/model-chat-mist.py gpt2_wikitext_5k
   ./bin/model-chat-mist.py alien_ink.zdeck.gemma_c4_5k --max-new-tokens 120
@@ -29,17 +28,14 @@ from alien_ink.hf.gen import generate_completion
 from alien_ink.hf.manifest import Manifest
 from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 
-SYSTEM_PROMPT = (
-    "You are a helpful, concise assistant written in alien ink. "
-    "Answer clearly and directly in plain language."
-)
+COMPLETION_STOP_STRINGS = ("\n\n",)
 
 log = get_logger("bin.chat")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Interactive fresh-completion chat against a zdeck checkpoint.",
+        description="Interactive text completion against a zdeck checkpoint.",
     )
     parser.add_argument(
         "zdeck",
@@ -62,11 +58,6 @@ def resolve_zdeck_module(name: str) -> str:
     if name.startswith("zdeck."):
         return f"alien_ink.{name}"
     return f"alien_ink.zdeck.{name}"
-
-
-def build_prompt(user_text: str) -> str:
-    """Combine the hard-coded system prompt with a fresh user turn."""
-    return f"System: {SYSTEM_PROMPT}\nUser: {user_text.strip()}\nAssistant:"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -110,27 +101,26 @@ def main(argv: list[str] | None = None) -> None:
     blank(logger=log)
     step("Ready. Each turn is a fresh completion (no history).", logger=log)
     detail("Commands: /quit  /exit  /q   or Ctrl-C / Ctrl-D", logger=log)
-    detail(f"System: {SYSTEM_PROMPT}", logger=log)
+    detail("Type a sentence starter, e.g. The capital of Texas is", logger=log)
     blank(logger=log)
 
     while True:
         print("--------------------------------------------------------------")
         try:
-            user_text = input("input› ").strip()
+            prompt = input("input› ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             step("Bye.", logger=log)
             return
 
-        if not user_text:
+        if not prompt:
             continue
-        if user_text.lower() in {"/quit", "/exit", "/q"}:
+        if prompt.lower() in {"/quit", "/exit", "/q"}:
             step("Bye.", logger=log)
             return
 
         step("Completing with model...", logger=log)
 
-        prompt = build_prompt(user_text)
         try:
             completion = generate_completion(
                 model,
@@ -138,6 +128,7 @@ def main(argv: list[str] | None = None) -> None:
                 prompt,
                 device,
                 max_new_tokens=args.max_new_tokens,
+                stop_strings=COMPLETION_STOP_STRINGS,
             )
         except Exception as exc:
             log.error("generation failed: %s", exc)

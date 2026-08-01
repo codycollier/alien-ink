@@ -69,6 +69,18 @@ def pick_prompts(
     return sample_prompts(pool, count=count, seed=seed)
 
 
+def truncate_at_stops(text: str, stops: tuple[str, ...]) -> str:
+    """Return ``text`` up to the earliest stop string, if any."""
+    if not stops:
+        return text
+    end = len(text)
+    for stop in stops:
+        idx = text.find(stop)
+        if idx != -1:
+            end = min(end, idx)
+    return text[:end]
+
+
 @torch.inference_mode()
 def generate_completion(
     model: PreTrainedModel,
@@ -81,21 +93,27 @@ def generate_completion(
     top_k: int = 50,
     top_p: float = 0.95,
     temperature: float = 0.8,
+    stop_strings: tuple[str, ...] | list[str] | None = None,
 ) -> str:
     """Generate a single completion for ``prompt`` and return only the new text."""
     target = torch_device(device)
     inputs = tokenizer(prompt, return_tensors="pt").to(target)
+    input_len = inputs["input_ids"].shape[1]
     gen_kwargs: dict = {
         "max_new_tokens": max_new_tokens,
         "do_sample": do_sample,
         "num_return_sequences": 1,
         "pad_token_id": tokenizer.pad_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
     }
     if do_sample:
         gen_kwargs.update(top_k=top_k, top_p=top_p, temperature=temperature)
     output_ids = model.generate(**inputs, **gen_kwargs)
-    full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
-    return full_text[len(prompt) :].strip()
+    new_ids = output_ids[0, input_len:]
+    completion = tokenizer.decode(new_ids, skip_special_tokens=True)
+    if stop_strings:
+        completion = truncate_at_stops(completion, tuple(stop_strings))
+    return completion.strip()
 
 
 def collect_spot_check_prompts(
