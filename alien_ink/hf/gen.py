@@ -3,16 +3,16 @@
 from __future__ import annotations
 
 import random
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 
 import torch
 from transformers import PreTrainedModel, PreTrainedTokenizerBase
 
 from alien_ink.com.device import device_info, torch_device
-from alien_ink.hf.ds import HubTextSource, load_text_prompts
-from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 from alien_ink.com.log import banner, blank, get_logger, header, step
+from alien_ink.hf.ds import HubTextSource, load_text_prompts
+from alien_ink.hf.model import ModelFamily, find_checkpoint_path, load_pretrained_model
 
 log = get_logger("hf.gen")
 
@@ -29,6 +29,52 @@ DEFAULT_PROMPTS = [
     "In computer science, an algorithm is",
     "The Pacific Ocean is the",
 ]
+
+_SENTENCE_END_STOP_STRINGS = (".", "!", "?")
+
+
+@dataclass(frozen=True)
+class GenConfig:
+    """Family-aware generation defaults for base causal LMs."""
+
+    max_new_tokens: int = 80
+    do_sample: bool = False
+    top_k: int = 50
+    top_p: float = 0.95
+    temperature: float = 0.8
+    stop_strings: tuple[str, ...] = _SENTENCE_END_STOP_STRINGS
+    add_special_tokens: bool = True
+
+
+def _gpt2_gen_config() -> GenConfig:
+    return GenConfig(add_special_tokens=True)
+
+
+def _gpt_neox_gen_config() -> GenConfig:
+    return GenConfig(add_special_tokens=True)
+
+
+def _gemma_gen_config() -> GenConfig:
+    # Match mid-sequence continuation; Gemma tokenizers prepend BOS by default.
+    return GenConfig(add_special_tokens=False)
+
+
+_GEN_CONFIG_BY_FAMILY: dict[ModelFamily, GenConfig] = {
+    "gpt2": _gpt2_gen_config(),
+    "gpt_neox": _gpt_neox_gen_config(),
+    "gemma": _gemma_gen_config(),
+}
+
+
+def gen_config_for_family(family: ModelFamily, **overrides) -> GenConfig:
+    """Return generation defaults for ``family``, with optional field overrides."""
+    try:
+        base = _GEN_CONFIG_BY_FAMILY[family]
+    except KeyError as exc:
+        raise ValueError(f"unsupported family: {family!r}") from exc
+    if not overrides:
+        return base
+    return replace(base, **overrides)
 
 
 @dataclass(frozen=True)
@@ -69,50 +115,41 @@ def pick_prompts(
     return sample_prompts(pool, count=count, seed=seed)
 
 
-def truncate_at_stops(text: str, stops: tuple[str, ...]) -> str:
-    """Return ``text`` up to the earliest stop string, if any."""
-    if not stops:
-        return text
-    end = len(text)
-    for stop in stops:
-        idx = text.find(stop)
-        if idx != -1:
-            end = min(end, idx)
-    return text[:end]
-
-
 @torch.inference_mode()
 def generate_completion(
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizerBase,
     prompt: str,
     device: str,
-    *,
-    max_new_tokens: int = 80,
-    do_sample: bool = False,
-    top_k: int = 50,
-    top_p: float = 0.95,
-    temperature: float = 0.8,
-    stop_strings: tuple[str, ...] | list[str] | None = None,
+    gen: GenConfig,
 ) -> str:
     """Generate a single completion for ``prompt`` and return only the new text."""
     target = torch_device(device)
-    inputs = tokenizer(prompt, return_tensors="pt").to(target)
+    inputs = tokenizer(
+        prompt,
+        return_tensors="pt",
+        add_special_tokens=gen.add_special_tokens,
+    ).to(target)
     input_len = inputs["input_ids"].shape[1]
     gen_kwargs: dict = {
-        "max_new_tokens": max_new_tokens,
-        "do_sample": do_sample,
+        "max_new_tokens": gen.max_new_tokens,
+        "do_sample": gen.do_sample,
         "num_return_sequences": 1,
         "pad_token_id": tokenizer.pad_token_id,
         "eos_token_id": tokenizer.eos_token_id,
     }
-    if do_sample:
-        gen_kwargs.update(top_k=top_k, top_p=top_p, temperature=temperature)
+    if gen.do_sample:
+        gen_kwargs.update(
+            top_k=gen.top_k,
+            top_p=gen.top_p,
+            temperature=gen.temperature,
+        )
+    if gen.stop_strings:
+        gen_kwargs["stop_strings"] = list(gen.stop_strings)
+        gen_kwargs["tokenizer"] = tokenizer
     output_ids = model.generate(**inputs, **gen_kwargs)
     new_ids = output_ids[0, input_len:]
     completion = tokenizer.decode(new_ids, skip_special_tokens=True)
-    if stop_strings:
-        completion = truncate_at_stops(completion, tuple(stop_strings))
     return completion.strip()
 
 
@@ -142,6 +179,7 @@ def collect_spot_check_prompts(
 def run_spot_check(
     *,
     output_dirs: list[Path] | tuple[Path, ...],
+    family: ModelFamily = "gpt2",
     spot: SpotCheckConfig | None = None,
     text_source: HubTextSource | None = None,
     title: str = "Causal LM spot check",
@@ -150,6 +188,14 @@ def run_spot_check(
 ) -> None:
     """Load the newest checkpoint under ``output_dirs`` and log sample completions."""
     spot = spot or SpotCheckConfig()
+    gen = gen_config_for_family(
+        family,
+        max_new_tokens=spot.max_new_tokens,
+        do_sample=spot.do_sample,
+        top_k=spot.top_k,
+        top_p=spot.top_p,
+        temperature=spot.temperature,
+    )
 
     header(logger=log)
     banner(title, logger=log)
@@ -158,7 +204,7 @@ def run_spot_check(
     step(f"Device: {device}", logger=log)
 
     model_path = find_checkpoint_path(*output_dirs)
-    model, tokenizer = load_pretrained_model(model_path, device)
+    model, tokenizer = load_pretrained_model(model_path, device, family=family)
 
     blank(logger=log)
     step(
@@ -169,17 +215,7 @@ def run_spot_check(
     blank(logger=log)
 
     for index, prompt in enumerate(prompts, start=1):
-        completion = generate_completion(
-            model,
-            tokenizer,
-            prompt,
-            device,
-            max_new_tokens=spot.max_new_tokens,
-            do_sample=spot.do_sample,
-            top_k=spot.top_k,
-            top_p=spot.top_p,
-            temperature=spot.temperature,
-        )
+        completion = generate_completion(model, tokenizer, prompt, device, gen)
         log.info("--- sample %s ---", index)
         log.info("PROMPT:     %s", prompt)
         log.info("COMPLETION: %s", completion)

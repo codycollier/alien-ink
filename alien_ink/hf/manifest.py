@@ -241,6 +241,12 @@ class Manifest:
     def output_dir(self) -> Path:
         return Path.cwd() / "output" / self.run_name
 
+    def gen_config(self, **overrides):
+        """Family-aware generation config derived from ``self.model.family``."""
+        from alien_ink.hf.gen import gen_config_for_family
+
+        return gen_config_for_family(self.model.family, **overrides)
+
     def validate(self) -> None:
         if not self.run_name.strip():
             raise ValueError("run_name must be a non-empty string")

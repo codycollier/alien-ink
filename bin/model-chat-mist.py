@@ -28,7 +28,6 @@ from alien_ink.hf.gen import generate_completion
 from alien_ink.hf.manifest import Manifest
 from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 
-COMPLETION_STOP_STRINGS = ("\n\n",)
 
 log = get_logger("bin.chat")
 
@@ -97,10 +96,11 @@ def main(argv: list[str] | None = None) -> None:
         family=manifest.model.family,
     )
     model.config.use_cache = True
+    gen = manifest.gen_config(max_new_tokens=args.max_new_tokens)
 
     blank(logger=log)
     step("Ready. Each turn is a fresh completion (no history).", logger=log)
-    detail("Commands: /quit  /exit  /q   or Ctrl-C / Ctrl-D", logger=log)
+    detail("Ctrl-C to exit.", logger=log)
     detail("Type a sentence starter, e.g. The capital of Texas is", logger=log)
     blank(logger=log)
 
@@ -115,9 +115,6 @@ def main(argv: list[str] | None = None) -> None:
 
         if not prompt:
             continue
-        if prompt.lower() in {"/quit", "/exit", "/q"}:
-            step("Bye.", logger=log)
-            return
 
         step("Completing with model...", logger=log)
 
@@ -127,8 +124,7 @@ def main(argv: list[str] | None = None) -> None:
                 tokenizer,
                 prompt,
                 device,
-                max_new_tokens=args.max_new_tokens,
-                stop_strings=COMPLETION_STOP_STRINGS,
+                gen,
             )
         except Exception as exc:
             log.error("generation failed: %s", exc)

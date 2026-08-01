@@ -163,3 +163,22 @@ def test_manifest_validate_block_vs_positions():
 def test_hardware_config_validate():
     with pytest.raises(ValueError, match="per_device_train_batch_size"):
         HardwareConfig(per_device_train_batch_size=0).validate()
+
+
+def test_manifest_gen_config_follows_model_family():
+    from alien_ink.hf.gen import GenConfig
+    from alien_ink.hf.model import gemma_arch
+
+    gpt2_manifest = _manifest()
+    assert gpt2_manifest.gen_config().add_special_tokens is True
+
+    gemma_manifest = _manifest(model=gemma_arch())
+    assert gemma_manifest.gen_config(max_new_tokens=120) == GenConfig(
+        max_new_tokens=120,
+        do_sample=False,
+        top_k=50,
+        top_p=0.95,
+        temperature=0.8,
+        stop_strings=(".", "!", "?"),
+        add_special_tokens=False,
+    )
