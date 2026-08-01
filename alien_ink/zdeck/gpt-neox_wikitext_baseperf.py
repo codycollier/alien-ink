@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Pretrain Mist-sized GPT-NeoX from scratch for 0.125 epochs on WikiText-103.
+"""Pretrain Mist-sized GPT-NeoX from scratch for 0.25 epochs on WikiText-103.
 
 Performance-baseline formule: short fractional-epoch run on fully materialized
 WikiText (``mode="complete"``) so wall-clock and throughput are comparable
@@ -22,7 +22,7 @@ from alien_ink.hf.manifest import (
 
 MANIFEST = Manifest(
     run_name="gpt-neox-wikitext-baseperf-mist",
-    title="GPT-NeoX from scratch on WikiText-103 (0.125 epochs, baseperf)",
+    title="GPT-NeoX from scratch on WikiText-103 (0.25 epochs, baseperf)",
     data=PretrainDataConfig(
         source=HubTextSource(
             dataset="Salesforce/wikitext",
@@ -73,10 +73,10 @@ MANIFEST = Manifest(
     ),
     schedule=ScheduleConfig(
         max_steps=-1,
-        num_train_epochs=0.125,
+        num_train_epochs=0.25,
         learning_rate=6e-4,
-        # ~4% of ~500 planned optimizer steps (≈0.125 epochs × ~4k steps/epoch).
-        warmup_steps=20,
+        # ~4% of ~1k planned optimizer steps (≈0.25 epochs × ~4k steps/epoch).
+        warmup_steps=40,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
