@@ -178,16 +178,18 @@ Architecture and tokenizer are set in `CausalLmArchConfig` (`alien_ink.hf.model`
 
 ## Manifests and the zdeck
 
-A zdeck module is a Python file exporting a `MANIFEST`. Filenames and
-`run_name` values are **stage-prefixed**:
+A zdeck module is a Python file exporting a `MANIFEST`. Filenames mirror
+`run_name` (underscores vs hyphens), including the host token:
 
 | Layer | Pattern | Example |
 |---|---|---|
-| File | `{stage}_{family}_{corpus}_{budget}.py` | `pre_gemma_c4_5k.py` |
+| File | `{stage}_{family}_{corpus}_{budget}_{host}.py` | `pre_gemma_c4_5k_mist.py` |
 | `run_name` / W&B | `{stage}-{family}-{corpus}-{budget}-{host}` | `pre-gemma-c4-5k-mist` |
 
 `stage` is a Manifest field: `"pre"` (from-scratch pretrain) or `"sft"`
-(supervised fine-tune; reserved — `train()` not implemented yet).
+(supervised fine-tune; reserved — `train()` not implemented yet). The host
+token (e.g. `mist`) is the short machine profile used in names; full GPU
+details live on `hardware.label` (e.g. `mist-rtx-3070`).
 
 ```python
 MANIFEST = Manifest(
@@ -216,21 +218,21 @@ output/<run_name>/
 
 | Module | Model family | Corpus |
 |---|---|---|
-| `alien_ink/zdeck/pre_gpt-2_wikitext_5k.py` | GPT-2 | WikiText-103 (stream) |
-| `alien_ink/zdeck/pre_gpt-2_wikipedia_5k.py` | GPT-2 | English Wikipedia (stream) |
-| `alien_ink.zdeck.pre_gemma_c4_5k` | Gemma | C4 English (stream) |
-| `alien_ink.zdeck.pre_gemma_c4_50k` | Gemma | C4 English (stream, 50k steps) |
-| `alien_ink.zdeck.pre_gemma_wikitext_4ep` | Gemma | WikiText-103 (complete, 4 epochs) |
-| `alien_ink/zdeck/pre_gpt-neox_wikitext_4ep.py` | GPT-NeoX | WikiText-103 (complete, 4 epochs) |
-| `alien_ink/zdeck/pre_gpt-neox_wikitext_baseperf.py` | GPT-NeoX | WikiText-103 (complete, 0.25 epochs) |
+| `alien_ink/zdeck/pre_gpt-2_wikitext_5k_mist.py` | GPT-2 | WikiText-103 (stream) |
+| `alien_ink/zdeck/pre_gpt-2_wikipedia_5k_mist.py` | GPT-2 | English Wikipedia (stream) |
+| `alien_ink.zdeck.pre_gemma_c4_5k_mist` | Gemma | C4 English (stream) |
+| `alien_ink.zdeck.pre_gemma_c4_50k_mist` | Gemma | C4 English (stream, 50k steps) |
+| `alien_ink.zdeck.pre_gemma_wikitext_4ep_mist` | Gemma | WikiText-103 (complete, 4 epochs) |
+| `alien_ink/zdeck/pre_gpt-neox_wikitext_4ep_mist.py` | GPT-NeoX | WikiText-103 (complete, 4 epochs) |
+| `alien_ink.zdeck.baseline_perf_mist` | GPT-NeoX | WikiText-103 (complete, 0.25 epochs) |
 
 ### Running training
 
 From the repo root:
 
 ```bash
-python alien_ink/zdeck/pre_gpt-2_wikitext_5k.py
-python -m alien_ink.zdeck.pre_gemma_c4_5k
+python alien_ink/zdeck/pre_gpt-2_wikitext_5k_mist.py
+python -m alien_ink.zdeck.pre_gemma_c4_5k_mist
 ```
 
 Or in the background on Mist:
@@ -250,9 +252,9 @@ Do **not** use chat roles (`System:`, `User:`, `Assistant:`) — the model was n
 ### Interactive REPL
 
 ```bash
-./bin/model-chat-mist.py pre_gpt-2_wikitext_5k
-./bin/model-chat-mist.py pre_gemma_c4_5k
-./bin/model-chat-mist.py alien_ink.zdeck.pre_gemma_c4_5k --max-new-tokens 120
+./bin/model-chat-mist.py pre_gpt-2_wikitext_5k_mist
+./bin/model-chat-mist.py pre_gemma_c4_5k_mist
+./bin/model-chat-mist.py alien_ink.zdeck.pre_gemma_c4_5k_mist --max-new-tokens 120
 ```
 
 The script loads the manifest, resolves `output/<run_name>/`, and drives generation from `manifest.model.family`.
@@ -313,7 +315,7 @@ Default prompt seeds (`"The capital of France is"`, etc.) are short sentence sta
 
 ## Adding a new training program
 
-1. Copy an existing zdeck module under `alien_ink/zdeck/`, keeping the stage prefix (`pre_…` or `sft_…`).
+1. Copy an existing zdeck module under `alien_ink/zdeck/`, naming it after the run (`{stage}_{family}_{corpus}_{budget}_{host}.py`).
 2. Set `stage` and a matching `run_name` (`{stage}-{family}-{corpus}-{budget}-{host}`).
 3. Set `data` to a `PretrainDataConfig` (or factory like `wikitext_103()`) pointing at your corpus.
 4. Set `model.family` and `model.tokenizer_name` to match.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python
-"""Pretrain a Mist-sized Gemma from scratch for 50k steps on streamed C4.
+"""Pretrain a Mist-sized Gemma from scratch for 5k steps on streamed C4.
 
 Uses a small Gemma architecture (not full Gemma-2B) so training fits on Mist
 (local RTX 3070, ~8 GB). Every manifest field is spelled out below for
@@ -7,7 +7,7 @@ reproducibility — change values in place, do not rely on module defaults.
 
 Requires Hugging Face access to the Gemma tokenizer (`google/gemma-2b`).
 
-  python -m alien_ink.zdeck.pre_gemma_c4_50k
+  python -m alien_ink.zdeck.pre_gemma_c4_5k_mist
 """
 
 from __future__ import annotations
@@ -22,8 +22,8 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="pre-gemma-c4-50k-mist",
-    title="Gemma (Mist-sized) from scratch on C4 (50k steps)",
+    run_name="pre-gemma-c4-5k-mist",
+    title="Gemma (Mist-sized) from scratch on C4 (5k steps)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
@@ -71,21 +71,21 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="pre-gemma-c4-50k-mist",
+        name="pre-gemma-c4-5k-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
-        max_steps=50_000,
+        max_steps=5_000,
         num_train_epochs=3.0,
         learning_rate=6e-4,
-        warmup_steps=2_000,
+        warmup_steps=200,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
         seed=101,
-        logging_steps=50,
-        eval_steps=1_000,
-        save_steps=1_000,
+        logging_steps=5,
+        eval_steps=100,
+        save_steps=100,
         save_total_limit=2,
         early_stopping_patience=0,
     ),

@@ -4,8 +4,8 @@
 Each turn is a fresh prompt — no history. Type a sentence starter or fragment;
 the model continues it in plain text (suited to base LMs pretrained on raw corpus).
 
-  ./bin/model-chat-mist.py pre_gpt-2_wikitext_5k
-  ./bin/model-chat-mist.py pre_gemma_c4_5k --max-new-tokens 120
+  ./bin/model-chat-mist.py pre_gpt-2_wikitext_5k_mist
+  ./bin/model-chat-mist.py pre_gemma_c4_5k_mist --max-new-tokens 120
 
 Requires a finished (or checkpointed) run under ``output/<run_name>/``.
 """
@@ -77,7 +77,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "zdeck",
-        help="Zdeck program name, module, or script (e.g. pre_gpt-2_wikitext_5k)",
+        help="Zdeck program name, module, or script (e.g. pre_gpt-2_wikitext_5k_mist)",
     )
     parser.add_argument(
         "--max-new-tokens",
@@ -126,8 +126,9 @@ def load_zdeck(name: str) -> tuple[ModuleType, str]:
     except ModuleNotFoundError as exc:
         raise SystemExit(
             f"Unknown zdeck {name!r}. "
-            "Try pre_gpt-2_wikitext_5k, pre_gpt-2_wikipedia_5k, pre_gemma_c4_5k, "
-            "pre_gemma_c4_50k, pre_gpt-neox_wikitext_4ep."
+            "Try pre_gpt-2_wikitext_5k_mist, pre_gpt-2_wikipedia_5k_mist, "
+            "pre_gemma_c4_5k_mist, pre_gemma_c4_50k_mist, "
+            "pre_gpt-neox_wikitext_4ep_mist."
         ) from exc
 
 

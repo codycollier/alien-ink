@@ -1,13 +1,11 @@
 #!/usr/bin/env python
-"""Pretrain a Mist-sized Gemma from scratch for 5k steps on streamed C4.
+"""Pretrain GPT-2 from scratch for 5k steps on streamed WikiText-103.
 
-Uses a small Gemma architecture (not full Gemma-2B) so training fits on Mist
-(local RTX 3070, ~8 GB). Every manifest field is spelled out below for
-reproducibility — change values in place, do not rely on module defaults.
+Sized for Mist (local RTX 3070, ~8 GB). Every manifest field is spelled out
+below for reproducibility — change values in place, do not rely on module
+defaults.
 
-Requires Hugging Face access to the Gemma tokenizer (`google/gemma-2b`).
-
-  python -m alien_ink.zdeck.pre_gemma_c4_5k
+  python alien_ink/zdeck/pre_gpt-2_wikitext_5k_mist.py
 """
 
 from __future__ import annotations
@@ -22,19 +20,19 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="pre-gemma-c4-5k-mist",
-    title="Gemma (Mist-sized) from scratch on C4 (5k steps)",
+    run_name="pre-gpt-2-wikitext-5k-mist",
+    title="GPT-2 from scratch on WikiText-103 (5k steps)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
-            dataset="allenai/c4",
-            name="en",
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
             split="train",
             text_column="text",
         ),
         eval_source=HubTextSource(
-            dataset="allenai/c4",
-            name="en",
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
             split="validation",
             text_column="text",
         ),
@@ -47,22 +45,21 @@ MANIFEST = Manifest(
         seed=101,
     ),
     model=CausalLmArchConfig(
-        family="gemma",
-        tokenizer_name="google/gemma-2b",
+        family="gpt-2",
+        tokenizer_name="gpt2",
         n_positions=1024,
-        n_embd=512,
-        n_layer=8,
-        n_head=8,
-        head_dim=64,
-        intermediate_size=2048,
+        n_embd=768,
+        n_layer=12,
+        n_head=12,
+        head_dim=None,
+        intermediate_size=None,
         use_cache=False,
     ),
     hardware=HardwareConfig(
         label="mist-rtx-3070",
-        # batch=2 OOMs on 8 GB: Gemma vocab (~256k) materializes ~2 GiB logits.
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
-        gradient_accumulation_steps=32,
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=2,
+        gradient_accumulation_steps=16,
         dataloader_num_workers=2,
         prefer_bf16=True,
         prefer_fp16=True,
@@ -71,7 +68,7 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="pre-gemma-c4-5k-mist",
+        name="pre-gpt-2-wikitext-5k-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(

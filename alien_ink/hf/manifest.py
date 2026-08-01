@@ -195,8 +195,8 @@ class Manifest:
     """Top-level training manifest: data ⊕ model ⊕ hardware ⊕ wandb ⊕ schedule.
 
     ``stage`` distinguishes from-scratch pretraining (``pre``) from supervised
-    fine-tuning (``sft``). Zdeck filenames and ``run_name`` values should be
-    stage-prefixed (e.g. ``pre_gemma_c4_5k.py`` / ``pre-gemma-c4-5k-mist``).
+    fine-tuning (``sft``). Zdeck filenames mirror ``run_name`` (underscores vs
+    hyphens), e.g. ``pre_gemma_c4_5k_mist.py`` / ``pre-gemma-c4-5k-mist``.
 
     Materializes a :class:`~alien_ink.hf.pretrain.PretrainConfig` via
     :meth:`to_pretrain_config`. Compose ablations with :meth:`variant`,

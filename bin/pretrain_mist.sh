@@ -16,26 +16,26 @@ mkdir -p output
 module=""
 script=""
 
-# script="alien_ink/zdeck/pre_gpt-2_wikipedia_5k.py"
+# script="alien_ink/zdeck/pre_gpt-2_wikipedia_5k_mist.py"
 # name="pre-gpt-2-wikipedia-5k-mist"
 
-# script="alien_ink/zdeck/pre_gpt-2_wikitext_5k.py"
+# script="alien_ink/zdeck/pre_gpt-2_wikitext_5k_mist.py"
 # name="pre-gpt-2-wikitext-5k-mist"
 
-# module="alien_ink.zdeck.pre_gemma_c4_5k"
+# module="alien_ink.zdeck.pre_gemma_c4_5k_mist"
 # name="pre-gemma-c4-5k-mist"
 
-# module="alien_ink.zdeck.pre_gemma_c4_50k"
+# module="alien_ink.zdeck.pre_gemma_c4_50k_mist"
 # name="pre-gemma-c4-50k-mist"
 
-module="alien_ink.zdeck.pre_gemma_wikitext_4ep"
+module="alien_ink.zdeck.pre_gemma_wikitext_4ep_mist"
 name="pre-gemma-wikitext-4ep-mist"
 
-# script="alien_ink/zdeck/pre_gpt-neox_wikitext_4ep.py"
+# script="alien_ink/zdeck/pre_gpt-neox_wikitext_4ep_mist.py"
 # name="pre-gpt-neox-wikitext-4ep-mist"
 
-# script="alien_ink/zdeck/pre_gpt-neox_wikitext_baseperf.py"
-# name="pre-gpt-neox-wikitext-baseperf-mist"
+# module="alien_ink.zdeck.baseline_perf_mist"
+# name="baseline-perf-mist"
 
 # ------------------------------------------------------------------------------
 

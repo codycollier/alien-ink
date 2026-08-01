@@ -1,14 +1,12 @@
 #!/usr/bin/env python
-"""Pretrain Mist-sized Gemma from scratch for 4 epochs on WikiText-103.
+"""Pretrain Mist-sized GPT-NeoX from scratch for 4 epochs on WikiText-103.
 
-Uses a small Gemma architecture (not full Gemma-2B) so training fits on Mist
-(local RTX 3070, ~8 GB). WikiText is fully materialized (``mode="complete"``)
-so epoch length is well-defined. Every manifest field is spelled out below for
-reproducibility — change values in place, do not rely on module defaults.
+Sized for Mist (local RTX 3070, ~8 GB). WikiText is fully materialized
+(``mode="complete"``) so epoch length is well-defined. Every manifest field is
+spelled out below for reproducibility — change values in place, do not rely on
+module defaults.
 
-Requires Hugging Face access to the Gemma tokenizer (`google/gemma-2b`).
-
-  python -m alien_ink.zdeck.pre_gemma_wikitext_4ep
+  python alien_ink/zdeck/pre_gpt-neox_wikitext_4ep_mist.py
 """
 
 from __future__ import annotations
@@ -23,8 +21,8 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="pre-gemma-wikitext-4ep-mist",
-    title="Gemma (Mist-sized) from scratch on WikiText-103 (4 epochs)",
+    run_name="pre-gpt-neox-wikitext-4ep-mist",
+    title="GPT-NeoX from scratch on WikiText-103 (4 epochs)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
@@ -48,22 +46,21 @@ MANIFEST = Manifest(
         seed=101,
     ),
     model=CausalLmArchConfig(
-        family="gemma",
-        tokenizer_name="google/gemma-2b",
+        family="gpt-neox",
+        tokenizer_name="EleutherAI/gpt-neox-20b",
         n_positions=1024,
-        n_embd=512,
-        n_layer=8,
-        n_head=8,
-        head_dim=64,
-        intermediate_size=2048,
+        n_embd=768,
+        n_layer=12,
+        n_head=12,
+        head_dim=None,
+        intermediate_size=3072,
         use_cache=False,
     ),
     hardware=HardwareConfig(
         label="mist-rtx-3070",
-        # batch=2 OOMs on 8 GB: Gemma vocab (~256k) materializes ~2 GiB logits.
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
-        gradient_accumulation_steps=32,
+        per_device_train_batch_size=2,
+        per_device_eval_batch_size=2,
+        gradient_accumulation_steps=16,
         dataloader_num_workers=2,
         prefer_bf16=True,
         prefer_fp16=True,
@@ -72,7 +69,7 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="pre-gemma-wikitext-4ep-mist",
+        name="pre-gpt-neox-wikitext-4ep-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(

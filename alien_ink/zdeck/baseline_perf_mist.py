@@ -1,12 +1,12 @@
 #!/usr/bin/env python
 """Pretrain Mist-sized GPT-NeoX from scratch for 0.25 epochs on WikiText-103.
 
-Performance-baseline formule: short fractional-epoch run on fully materialized
+Performance-baseline formula: short fractional-epoch run on fully materialized
 WikiText (``mode="complete"``) so wall-clock and throughput are comparable
 across hardware/config tweaks. Every manifest field is spelled out below for
 reproducibility — change values in place, do not rely on module defaults.
 
-  python alien_ink/zdeck/pre_gpt-neox_wikitext_baseperf.py
+  python -m alien_ink.zdeck.baseline_perf_mist
 """
 
 from __future__ import annotations
@@ -21,8 +21,8 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="pre-gpt-neox-wikitext-baseperf-mist",
-    title="GPT-NeoX from scratch on WikiText-103 (0.25 epochs, baseperf)",
+    run_name="baseline-perf-mist",
+    title="GPT-NeoX from scratch on WikiText-103 (0.25 epochs, baseline perf)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
@@ -69,7 +69,7 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="pre-gpt-neox-wikitext-baseperf-mist",
+        name="baseline-perf-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
