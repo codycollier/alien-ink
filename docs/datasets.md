@@ -374,4 +374,5 @@ C4 EN           █████████████████████�
 
 See also: [`pretraining-and-completion.md`](pretraining-and-completion.md) for
 load modes and packing; [`model-families.md`](model-families.md) for which
-family is paired with which corpus today.
+family is paired with which corpus today; [`gpu-memory.md`](gpu-memory.md) for
+how batch size and vocab hit VRAM (corpus scale does not).

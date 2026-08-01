@@ -243,6 +243,9 @@ For any family, increasing `n_positions` or batch size costs activation memory
 quadratically / linearly; increasing vocab costs logit and embedding memory
 linearly in vocab size.
 
+Worked Mist budgets (params + Adam + logits + activations):
+[`gpu-memory.md`](gpu-memory.md).
+
 ---
 
 ## Family × dataset matrix
