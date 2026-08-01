@@ -67,10 +67,6 @@ class PretrainConfig:
             )
 
 
-# Back-compat alias.
-Gpt2PretrainConfig = PretrainConfig
-
-
 def with_trainer(
     config: PretrainConfig,
     **trainer_overrides,
@@ -328,8 +324,3 @@ def pretrain(
             model_size=model_size,
             accelerator=accel,
         )
-
-
-def pretrain_gpt2(config: PretrainConfig, **kwargs):
-    """Back-compat alias for ``pretrain``."""
-    return pretrain(config, **kwargs)

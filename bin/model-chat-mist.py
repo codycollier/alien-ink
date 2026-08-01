@@ -16,7 +16,11 @@ import argparse
 import importlib
 import os
 import sys
+import threading
+import time
+from contextlib import contextmanager
 from pathlib import Path
+from typing import Iterator
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 if str(REPO_ROOT) not in sys.path:
@@ -30,6 +34,40 @@ from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 
 
 log = get_logger("bin.chat")
+
+_WAIT_WIDTH = 14
+_WAIT_INTERVAL = 0.07
+_BLUE = "\033[34m"
+_RESET = "\033[0m"
+
+
+@contextmanager
+def wait_anim() -> Iterator[None]:
+    """Slide a soft marker left↔right on one line; clear when done."""
+    stop = threading.Event()
+
+    def _run() -> None:
+        pos = 0
+        direction = 1
+        while not stop.is_set():
+            track = ["·"] * _WAIT_WIDTH
+            track[pos] = "●"
+            sys.stdout.write(f"\r  {_BLUE}{''.join(track)}{_RESET}")
+            sys.stdout.flush()
+            pos += direction
+            if pos <= 0 or pos >= _WAIT_WIDTH - 1:
+                direction *= -1
+            time.sleep(_WAIT_INTERVAL)
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+    try:
+        yield
+    finally:
+        stop.set()
+        thread.join(timeout=1.0)
+        sys.stdout.write("\r\033[K")
+        sys.stdout.flush()
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -116,16 +154,15 @@ def main(argv: list[str] | None = None) -> None:
         if not prompt:
             continue
 
-        step("Completing with model...", logger=log)
-
         try:
-            completion = generate_completion(
-                model,
-                tokenizer,
-                prompt,
-                device,
-                gen,
-            )
+            with wait_anim():
+                completion = generate_completion(
+                    model,
+                    tokenizer,
+                    prompt,
+                    device,
+                    gen,
+                )
         except Exception as exc:
             log.error("generation failed: %s", exc)
             continue

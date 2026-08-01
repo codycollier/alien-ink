@@ -103,16 +103,7 @@ class HardwareConfig:
 
 def mist_rtx_3070() -> HardwareConfig:
     """Mist / local RTX 3070 (~8 GB): microbatch 2 × accum 16 = effective 32."""
-    return HardwareConfig(
-        label="mist-rtx-3070",
-        per_device_train_batch_size=2,
-        per_device_eval_batch_size=2,
-        gradient_accumulation_steps=16,
-        dataloader_num_workers=2,
-        prefer_bf16=True,
-        prefer_fp16=True,
-        gradient_checkpointing=True,
-    )
+    return HardwareConfig()
 
 
 @dataclass(frozen=True)
@@ -159,7 +150,11 @@ class ScheduleConfig:
         return self.max_steps < 0
 
     def cadence(self) -> dict[str, int]:
-        """Resolved logging / eval / save step intervals."""
+        """Resolved logging / eval / save step intervals.
+
+        Epoch mode starts from a fixed placeholder; ``build_causal_lm_trainer``
+        replaces it with dataset-length cadence via ``apply_epoch_cadence``.
+        """
         if self.uses_epochs():
             base = {
                 "logging_steps": _EPOCH_LOGGING_STEPS,

@@ -46,11 +46,7 @@ class GenConfig:
     add_special_tokens: bool = True
 
 
-def _gpt2_gen_config() -> GenConfig:
-    return GenConfig(add_special_tokens=True)
-
-
-def _gpt_neox_gen_config() -> GenConfig:
+def _default_gen_config() -> GenConfig:
     return GenConfig(add_special_tokens=True)
 
 
@@ -60,8 +56,8 @@ def _gemma_gen_config() -> GenConfig:
 
 
 _GEN_CONFIG_BY_FAMILY: dict[ModelFamily, GenConfig] = {
-    "gpt2": _gpt2_gen_config(),
-    "gpt_neox": _gpt_neox_gen_config(),
+    "gpt2": _default_gen_config(),
+    "gpt_neox": _default_gen_config(),
     "gemma": _gemma_gen_config(),
 }
 

@@ -9,12 +9,12 @@ import pytest
 transformers = pytest.importorskip("transformers")
 
 from alien_ink.hf.pretrain import (  # noqa: E402
-    Gpt2PretrainConfig,
+    PretrainConfig,
     resolve_use_wandb,
     with_trainer,
 )
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
-from alien_ink.hf.model import Gpt2ArchConfig  # noqa: E402
+from alien_ink.hf.model import CausalLmArchConfig  # noqa: E402
 from alien_ink.hf.trainer import (  # noqa: E402
     CausalLmTrainerConfig,
     apply_epoch_cadence,
@@ -47,7 +47,7 @@ def test_reporting_disabled():
 
 
 def test_resolve_use_wandb_explicit_and_report_to():
-    cfg = Gpt2PretrainConfig(
+    cfg = PretrainConfig(
         data=PretrainDataConfig(source=HubTextSource(dataset="Salesforce/wikitext")),
         trainer=CausalLmTrainerConfig(
             output_dir=Path("output/x"),
@@ -62,12 +62,12 @@ def test_resolve_use_wandb_explicit_and_report_to():
 
 
 def test_pretrain_config_validate_block_vs_positions():
-    cfg = Gpt2PretrainConfig(
+    cfg = PretrainConfig(
         data=PretrainDataConfig(
             source=HubTextSource(dataset="Salesforce/wikitext"),
             block_size=2048,
         ),
-        arch=Gpt2ArchConfig(n_positions=1024),
+        arch=CausalLmArchConfig(n_positions=1024),
         trainer=CausalLmTrainerConfig(output_dir=Path("output/x")),
     )
     with pytest.raises(ValueError, match="block_size"):

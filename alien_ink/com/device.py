@@ -111,7 +111,7 @@ def precision_label(*, use_fp16: bool, use_bf16: bool) -> str:
     return "fp32"
 
 
-# Approximate peak TFLOPS for MFU (dense Tensor-core peaks, no sparsity).
+# Approximate CUDA peak TFLOPS for MFU estimates (not sparse Tensor-Core peaks).
 _PEAK_TFLOPS: dict[str, dict[str, float]] = {
     "NVIDIA GeForce RTX 3070": {"fp16": 40.6, "bf16": 40.6, "fp32": 20.31},
     "NVIDIA GeForce RTX 3080": {"fp16": 29.77, "bf16": 29.77, "fp32": 29.77},

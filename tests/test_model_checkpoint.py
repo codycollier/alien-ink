@@ -9,7 +9,7 @@ import pytest
 pytest.importorskip("transformers")
 
 from alien_ink.hf.model import (  # noqa: E402
-    Gpt2ArchConfig,
+    CausalLmArchConfig,
     find_checkpoint_path,
     resolve_checkpoint_path,
 )
@@ -44,11 +44,11 @@ def test_find_checkpoint_path_tries_candidates(tmp_path: Path):
 
 def test_arch_validate_rejects_bad_head_divisibility():
     with pytest.raises(ValueError, match="divisible"):
-        Gpt2ArchConfig(n_embd=100, n_head=12).validate()
+        CausalLmArchConfig(n_embd=100, n_head=12).validate()
 
 
 def test_arch_validate_ok():
-    Gpt2ArchConfig().validate()
+    CausalLmArchConfig().validate()
 
 
 def test_arch_families():

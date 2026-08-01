@@ -217,3 +217,18 @@ def test_stream_mode_rejects_max_train_samples():
     )
     with pytest.raises(ValueError, match="max_train_samples=None"):
         cfg.validate()
+
+
+def test_pretrain_data_config_validate():
+    cfg = PretrainDataConfig(source=HubTextSource(dataset="Salesforce/wikitext"))
+    cfg.validate()
+    with pytest.raises(ValueError, match="block_size"):
+        PretrainDataConfig(
+            source=HubTextSource(dataset="Salesforce/wikitext"),
+            block_size=0,
+        ).validate()
+    with pytest.raises(ValueError, match="max_train_samples"):
+        PretrainDataConfig(
+            source=HubTextSource(dataset="Salesforce/wikitext"),
+            max_train_samples=0,
+        ).validate()

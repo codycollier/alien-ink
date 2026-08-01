@@ -19,7 +19,6 @@ from alien_ink.com.device import (
     AcceleratorInfo,
     device_info,
     distributed_world_size,
-    precision_label,
 )
 from alien_ink.hf.metrics import (
     ModelSize,
@@ -44,7 +43,6 @@ __all__ = [
     "epoch_cadence_steps",
     "has_eval_examples",
     "optimizer_steps_per_epoch",
-    "precision_label",
     "reporting_disabled",
     "save_model_and_tokenizer",
     "tokens_per_optimizer_step",

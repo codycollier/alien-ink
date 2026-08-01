@@ -6,8 +6,6 @@ below for reproducibility — change values in place, do not rely on module
 defaults.
 
   python -m alien_ink.zdeck.gpt2_wikitext_5k
-
-
 """
 
 from __future__ import annotations

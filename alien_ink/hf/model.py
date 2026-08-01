@@ -87,10 +87,6 @@ class CausalLmArchConfig:
             )
 
 
-# Back-compat alias used by older call sites / tests.
-Gpt2ArchConfig = CausalLmArchConfig
-
-
 def gpt2_arch(**overrides) -> CausalLmArchConfig:
     """Mist-sized GPT-2 (124M-class) from-scratch config."""
     return CausalLmArchConfig(
@@ -124,11 +120,6 @@ def load_tokenizer(name_or_path: str | Path) -> PreTrainedTokenizerBase:
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
     return tokenizer
-
-
-def load_gpt2_tokenizer(name_or_path: str | Path) -> PreTrainedTokenizerBase:
-    """Alias for ``load_tokenizer`` (kept for older call sites)."""
-    return load_tokenizer(name_or_path)
 
 
 def build_model_from_scratch(
@@ -194,16 +185,6 @@ def build_model_from_scratch(
         param_count = sum(p.numel() for p in model.parameters())
         detail(f"parameters: {param_count:,}", logger=log)
     return model
-
-
-def build_gpt2_from_scratch(
-    tokenizer: PreTrainedTokenizerBase,
-    arch: CausalLmArchConfig | None = None,
-    *,
-    verbose: bool = True,
-) -> PreTrainedModel:
-    """Back-compat wrapper around ``build_model_from_scratch``."""
-    return build_model_from_scratch(tokenizer, arch, verbose=verbose)
 
 
 def build_model_and_tokenizer(
