@@ -243,9 +243,6 @@ For any family, increasing `n_positions` or batch size costs activation memory
 quadratically / linearly; increasing vocab costs logit and embedding memory
 linearly in vocab size.
 
-Worked Mist budgets (params + Adam + logits + activations):
-[`gpu-memory.md`](gpu-memory.md).
-
 ---
 
 ## Family × dataset matrix
@@ -309,7 +306,3 @@ gen = manifest.gen_config(max_new_tokens=120)
 
 Keep functions thin and composable — prefer a factory + manifest over a new
 class hierarchy.
-
-See also: [`datasets.md`](datasets.md) for corpus sizes;
-[`pretraining-and-completion.md`](pretraining-and-completion.md) for packing
-and the completion REPL.

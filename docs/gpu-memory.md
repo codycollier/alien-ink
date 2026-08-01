@@ -273,7 +273,7 @@ tokens_per_step = B × gradient_accumulation_steps × block_size
 
 ## Quick estimate recipe
 
-1. Count or approximate `P` (or use the tables in [`model-families.md`](model-families.md)).
+1. Count or approximate `P` (or use the Mist architecture tables for each family).
 2. Static floor: `P × 12 / 1024³` (or ×16 with master weights).
 3. Add logits: `B × S × V × 2` (or ×4 if loss upcasts).
 4. Add ~1–2 GiB for checkpointed activations + CUDA overhead on Mist-scale models.
@@ -306,6 +306,3 @@ hardware=HardwareConfig(
 # data.block_size → S
 # model.n_embd / n_layer / tokenizer → H, L, V → P and logits
 ```
-
-See [`model-families.md`](model-families.md) for Mist dims and vocab pressure;
-[`datasets.md`](datasets.md) for tokens/step (host-side scale, not VRAM).
