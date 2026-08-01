@@ -80,7 +80,7 @@ All zdeck programs today read a single **`text` column** per row. The model neve
 
 ### WikiText-103 (`Salesforce/wikitext`, `wikitext-103-v1`)
 
-Used by: `gpt2_wikitext_5k`
+Used by: `gpt-2_wikitext_5k`
 
 - **Train split:** curated Wikipedia articles, one row per article or paragraph block.
 - **Eval split:** dedicated `validation` split (not a hold-out from train).
@@ -96,7 +96,7 @@ WikiText uses `@-@` as a hyphen placeholder — the tokenizer sees those charact
 
 ### English Wikipedia (`wikimedia/wikipedia`, `20231101.en`)
 
-Used by: `gpt2_wikipedia_5k`
+Used by: `gpt-2_wikipedia_5k`
 
 - **Single train split** — no bundled validation set.
 - **Eval:** first `max_eval_samples` rows held out from the stream, then skipped for training.
@@ -153,11 +153,11 @@ Architecture and tokenizer are set in `CausalLmArchConfig` (`alien_ink.hf.model`
 
 | Family | HF model class | Default tokenizer | Mist-sized dims (zdeck) |
 |---|---|---|---|
-| `gpt2` | `GPT2LMHeadModel` | `gpt2` | 12 layers, 768 embd, 12 heads, 1024 positions |
-| `gpt_neox` | `GPTNeoXForCausalLM` | `EleutherAI/gpt-neox-20b` | same as GPT-2 |
+| `gpt-2` | `GPT2LMHeadModel` | `gpt2` | 12 layers, 768 embd, 12 heads, 1024 positions |
+| `gpt-neox` | `GPTNeoXForCausalLM` | `EleutherAI/gpt-neox-20b` | same as GPT-2 |
 | `gemma` | `GemmaForCausalLM` | `google/gemma-2b` | 8 layers, 512 embd, 8 heads, 1024 positions |
 
-### GPT-2 (`family="gpt2"`)
+### GPT-2 (`family="gpt-2"`)
 
 - Byte-pair tokenizer, vocab ~50k. No beginning-of-sequence token.
 - Training and completion both use **plain text** with default tokenizer behavior.
@@ -170,7 +170,7 @@ Architecture and tokenizer are set in `CausalLmArchConfig` (`alien_ink.hf.model`
 - **VRAM note:** the large vocabulary makes logits memory-heavy; Gemma zdecks use batch size 1 × grad accum 32 on an 8 GB GPU.
 - Typical zdeck pairings: C4 English.
 
-### GPT-NeoX (`family="gpt_neox"`)
+### GPT-NeoX (`family="gpt-neox"`)
 
 - Supported by the training stack but not yet used in a zdeck program. Same data syntax as GPT-2.
 
@@ -182,10 +182,10 @@ A zdeck module is a Python file exporting a `MANIFEST`:
 
 ```python
 MANIFEST = Manifest(
-    run_name="gpt2-wikitext-5k-mist",
+    run_name="gpt-2-wikitext-5k-mist",
     title="GPT-2 from scratch on WikiText-103 (5k steps)",
     data=PretrainDataConfig(...),
-    model=CausalLmArchConfig(family="gpt2", tokenizer_name="gpt2", ...),
+    model=CausalLmArchConfig(family="gpt-2", tokenizer_name="gpt2", ...),
     hardware=HardwareConfig(...),
     wandb=WandbConfig(...),
     schedule=ScheduleConfig(max_steps=5_000, ...),
@@ -206,8 +206,8 @@ output/<run_name>/
 
 | Module | Model family | Corpus |
 |---|---|---|
-| `alien_ink.zdeck.gpt2_wikitext_5k` | GPT-2 | WikiText-103 (stream) |
-| `alien_ink.zdeck.gpt2_wikipedia_5k` | GPT-2 | English Wikipedia (stream) |
+| `alien_ink/zdeck/gpt-2_wikitext_5k.py` | GPT-2 | WikiText-103 (stream) |
+| `alien_ink/zdeck/gpt-2_wikipedia_5k.py` | GPT-2 | English Wikipedia (stream) |
 | `alien_ink.zdeck.gemma_c4_5k` | Gemma | C4 English (stream) |
 | `alien_ink.zdeck.gemma_c4_50k` | Gemma | C4 English (stream, 50k steps) |
 
@@ -216,7 +216,7 @@ output/<run_name>/
 From the repo root:
 
 ```bash
-python -m alien_ink.zdeck.gpt2_wikitext_5k
+python alien_ink/zdeck/gpt-2_wikitext_5k.py
 python -m alien_ink.zdeck.gemma_c4_5k
 ```
 
@@ -237,7 +237,7 @@ Do **not** use chat roles (`System:`, `User:`, `Assistant:`) — the model was n
 ### Interactive REPL
 
 ```bash
-./bin/model-chat-mist.py gpt2_wikitext_5k
+./bin/model-chat-mist.py gpt-2_wikitext_5k
 ./bin/model-chat-mist.py gemma_c4_5k
 ./bin/model-chat-mist.py alien_ink.zdeck.gemma_c4_5k --max-new-tokens 120
 ```
@@ -276,8 +276,8 @@ Stop strings are passed to Hugging Face `generate()` as native stopping criteria
 from alien_ink.hf.gen import run_spot_check, SpotCheckConfig
 
 run_spot_check(
-    output_dirs=[Path("output/gpt2-wikitext-5k-mist")],
-    family="gpt2",
+    output_dirs=[Path("output/gpt-2-wikitext-5k-mist")],
+    family="gpt-2",
     spot=SpotCheckConfig(num_samples=5, do_sample=True),
 )
 ```

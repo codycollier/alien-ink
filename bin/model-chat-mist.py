@@ -4,8 +4,8 @@
 Each turn is a fresh prompt — no history. Type a sentence starter or fragment;
 the model continues it in plain text (suited to base LMs pretrained on raw corpus).
 
-  ./bin/model-chat-mist.py gpt2_wikitext_5k
-  ./bin/model-chat-mist.py alien_ink.zdeck.gemma_c4_5k --max-new-tokens 120
+  ./bin/model-chat-mist.py gpt-2_wikitext_5k
+  ./bin/model-chat-mist.py gemma_c4_5k --max-new-tokens 120
 
 Requires a finished (or checkpointed) run under ``output/<run_name>/``.
 """
@@ -14,12 +14,14 @@ from __future__ import annotations
 
 import argparse
 import importlib
+import importlib.util
 import os
 import sys
 import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
+from types import ModuleType
 from typing import Iterator
 
 from alien_ink.com.device import collect_accelerator_info, device_info
@@ -37,6 +39,7 @@ _BLUE = "\033[34m"
 _RESET = "\033[0m"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+ZDECK_DIR = REPO_ROOT / "alien_ink" / "zdeck"
 
 
 @contextmanager
@@ -74,7 +77,7 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     )
     parser.add_argument(
         "zdeck",
-        help="Zdeck program name or module (e.g. gpt2_wikitext_5k)",
+        help="Zdeck program name, module, or script (e.g. gpt-2_wikitext_5k)",
     )
     parser.add_argument(
         "--max-new-tokens",
@@ -85,32 +88,57 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def resolve_zdeck_module(name: str) -> str:
-    """Accept ``gpt2_wikitext_5k`` or a full ``alien_ink.zdeck.*`` path."""
+def _load_module_from_path(path: Path) -> tuple[ModuleType, str]:
+    """Load a zdeck .py file (supports hyphenated filenames)."""
+    if not path.is_file():
+        raise FileNotFoundError(path)
+    label = str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else str(path)
+    spec = importlib.util.spec_from_file_location(f"zdeck_script_{path.stem}", path)
+    if spec is None or spec.loader is None:
+        raise ImportError(f"cannot load zdeck script {path}")
+    mod = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(mod)
+    return mod, label
+
+
+def load_zdeck(name: str) -> tuple[ModuleType, str]:
+    """Load a zdeck module or hyphenated script by short name / path / module path."""
     name = name.strip()
-    if name.startswith("alien_ink.zdeck."):
-        return name
+    if name.endswith(".py") or "/" in name:
+        return _load_module_from_path((REPO_ROOT / name).resolve())
+
+    # Hyphenated zdeck filenames cannot be imported as packages.
+    script = ZDECK_DIR / f"{name}.py"
+    if "-" in name or script.is_file():
+        try:
+            return _load_module_from_path(script)
+        except FileNotFoundError:
+            pass
+
+    module_name = name
     if name.startswith("zdeck."):
-        return f"alien_ink.{name}"
-    return f"alien_ink.zdeck.{name}"
+        module_name = f"alien_ink.{name}"
+    elif not name.startswith("alien_ink.zdeck."):
+        module_name = f"alien_ink.zdeck.{name}"
+
+    try:
+        return importlib.import_module(module_name), module_name
+    except ModuleNotFoundError as exc:
+        raise SystemExit(
+            f"Unknown zdeck {name!r}. "
+            "Try gpt-2_wikitext_5k, gpt-2_wikipedia_5k, gemma_c4_5k, "
+            "gemma_c4_50k, gpt-neox_wikitext_4ep."
+        ) from exc
 
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     os.chdir(REPO_ROOT)
 
-    module_name = resolve_zdeck_module(args.zdeck)
-    try:
-        mod = importlib.import_module(module_name)
-    except ModuleNotFoundError as exc:
-        raise SystemExit(
-            f"Unknown zdeck module {module_name!r}. "
-            "Try gpt2_wikitext_5k, gpt2_wikipedia_5k, gemma_c4_5k, gemma_c4_50k."
-        ) from exc
-
+    mod, label = load_zdeck(args.zdeck)
     manifest = getattr(mod, "MANIFEST", None)
     if not isinstance(manifest, Manifest):
-        raise SystemExit(f"{module_name} has no Manifest named MANIFEST")
+        raise SystemExit(f"{label} has no Manifest named MANIFEST")
 
     header(logger=log)
     banner(f"interactive completion — {manifest.run_name}", logger=log)
@@ -121,7 +149,7 @@ def main(argv: list[str] | None = None) -> None:
     accel = collect_accelerator_info(prefer_bf16=prefer_bf16, prefer_fp16=prefer_fp16)
     gpu = accel.gpu_name or device
     step(f"Device: {device} ({gpu})", logger=log)
-    detail(f"zdeck:    {module_name}", logger=log)
+    detail(f"zdeck:    {label}", logger=log)
     detail(f"family:   {manifest.model.family}", logger=log)
     detail(f"run_name: {manifest.run_name}", logger=log)
 

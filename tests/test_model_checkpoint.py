@@ -54,8 +54,8 @@ def test_arch_validate_ok():
 def test_arch_families():
     from alien_ink.hf.model import gemma_arch, gpt2_arch, gpt_neox_arch
 
-    assert gpt2_arch().family == "gpt2"
-    assert gpt_neox_arch().family == "gpt_neox"
+    assert gpt2_arch().family == "gpt-2"
+    assert gpt_neox_arch().family == "gpt-neox"
     gemma = gemma_arch()
     assert gemma.family == "gemma"
     assert gemma.n_embd == 512

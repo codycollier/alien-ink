@@ -5,7 +5,7 @@ tokenizer identity live in `CausalLmArchConfig` (`alien_ink.hf.model`). Field
 names follow the GPT-2 convention (`n_embd`, `n_layer`, …) and are mapped onto
 each Hugging Face config class.
 
-Supported families: **`gpt2`**, **`gpt_neox`**, **`gemma`**. Defaults are sized
+Supported families: **`gpt-2`**, **`gpt-neox`**, **`gemma`**. Defaults are sized
 for Mist (local RTX 3070, ~8 GB VRAM).
 
 ---
@@ -14,7 +14,7 @@ for Mist (local RTX 3070, ~8 GB VRAM).
 
 | | GPT-2 | GPT-NeoX | Gemma (Mist) |
 |---|---|---|---|
-| **`family` string** | `gpt2` | `gpt_neox` | `gemma` |
+| **`family` string** | `gpt-2` | `gpt-neox` | `gemma` |
 | **HF class** | `GPT2LMHeadModel` | `GPTNeoXForCausalLM` | `GemmaForCausalLM` |
 | **Factory** | `gpt2_arch()` | `gpt_neox_arch()` | `gemma_arch()` |
 | **Default tokenizer** | `gpt2` | `EleutherAI/gpt-neox-20b` | `google/gemma-2b` |
@@ -48,7 +48,7 @@ Generation defaults differ by family (`alien_ink.hf.gen.gen_config_for_family`).
 
 ---
 
-## GPT-2 (`family="gpt2"`)
+## GPT-2 (`family="gpt-2"`)
 
 ### Role in Alien Ink
 
@@ -98,8 +98,8 @@ Fits comfortably on 8 GB with bf16/fp16 + gradient checkpointing.
 
 | Corpus | Zdeck |
 |---|---|
-| WikiText-103 | `gpt2_wikitext_5k` |
-| English Wikipedia | `gpt2_wikipedia_5k` |
+| WikiText-103 | `gpt-2_wikitext_5k` |
+| English Wikipedia | `gpt-2_wikipedia_5k` |
 
 C4 works with GPT-2 via the same data loaders; there is simply no checked-in
 GPT-2×C4 zdeck yet.
@@ -114,7 +114,7 @@ GPT-2×C4 zdeck yet.
 
 ---
 
-## GPT-NeoX (`family="gpt_neox"`)
+## GPT-NeoX (`family="gpt-neox"`)
 
 ### Role in Alien Ink
 
@@ -148,7 +148,7 @@ Mapped HF fields: `max_position_embeddings`, `hidden_size`,
   easy drop-in swap from GPT-2 via `family` + tokenizer.
 - **Cons:** Untested in this repo’s zdeck archive; validate VRAM and loss curves
   before long runs.
-- **How to add a zdeck:** copy `gpt2_wikitext_5k`, set `family="gpt_neox"`,
+- **How to add a zdeck:** copy `gpt-2_wikitext_5k`, set `family="gpt-neox"`,
   `tokenizer_name="EleutherAI/gpt-neox-20b"`, keep Mist dims unless retuning.
 
 ---
@@ -268,7 +268,7 @@ from alien_ink.hf.model import CausalLmArchConfig, gemma_arch, gpt2_arch
 
 # Explicit (zdeck style)
 model = CausalLmArchConfig(
-    family="gpt2",
+    family="gpt-2",
     tokenizer_name="gpt2",
     n_positions=1024,
     n_embd=768,

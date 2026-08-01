@@ -14,8 +14,8 @@ Alien Ink’s packing pipeline.
 
 | Corpus | Hub id | Config | Train rows | Word / token scale | ~Steps / epoch | ~Time / epoch (Mist) | Eval | Zdeck |
 |---|---|---|---:|---|---:|---|---|---|
-| WikiText-103 | `Salesforce/wikitext` | `wikitext-103-v1` | 1,801,350 | ~103M words / ~120–150M BPE | **~4k** | **~4 h** | dedicated `validation` | `gpt2_wikitext_5k` |
-| English Wikipedia | `wikimedia/wikipedia` | `20231101.en` | ~6.4M | ~3–5B words / ~4–7B BPE | **~120k–210k** | **~5–8.5 d** | hold-out from train | `gpt2_wikipedia_5k` |
+| WikiText-103 | `Salesforce/wikitext` | `wikitext-103-v1` | 1,801,350 | ~103M words / ~120–150M BPE | **~4k** | **~4 h** | dedicated `validation` | `gpt-2_wikitext_5k` |
+| English Wikipedia | `wikimedia/wikipedia` | `20231101.en` | ~6.4M | ~3–5B words / ~4–7B BPE | **~120k–210k** | **~5–8.5 d** | hold-out from train | `gpt-2_wikipedia_5k` |
 | C4 English | `allenai/c4` | `en` | 364,868,892 | ~156B SpaCy / ~150–200B subword | **~5M–6M** | **~6–8 mo** | dedicated `validation` | `gemma_c4_5k`, `gemma_c4_50k` |
 
 Row counts for WikiText and C4 come from Hub `dataset_info`. Wikipedia’s
@@ -55,7 +55,7 @@ tokens_per_step = per_device_batch × gradient_accumulation × block_size
 
 | Zdeck hardware | Batch × accum | `tokens_per_step` |
 |---|---|---:|
-| GPT-2 (`gpt2_wikitext_5k`, `gpt2_wikipedia_5k`) | 2 × 16 | **32,768** |
+| GPT-2 (`gpt-2_wikitext_5k`, `gpt-2_wikipedia_5k`) | 2 × 16 | **32,768** |
 | Gemma (`gemma_c4_5k`, `gemma_c4_50k`) | 1 × 32 | **32,768** |
 
 Gemma uses a smaller micro-batch because the ~256k vocab makes logits heavy;
@@ -72,8 +72,8 @@ steps_per_epoch ≈ corpus_subword_tokens / 32_768
 
 | Corpus | Subword tokens (est.) | Steps / epoch | ~Wall clock / epoch (Mist) | Current zdeck `max_steps` |
 |---|---:|---:|---|---:|
-| WikiText-103 | ~120–150M (GPT-2 BPE) | **~3.7k–4.6k** | **~3.5–4.5 h** | 5,000 (`gpt2_wikitext_5k`) |
-| Wikipedia EN | ~4–7B (GPT-2 BPE) | **~120k–210k** | **~5–8.5 days** | 5,000 (`gpt2_wikipedia_5k`) |
+| WikiText-103 | ~120–150M (GPT-2 BPE) | **~3.7k–4.6k** | **~3.5–4.5 h** | 5,000 (`gpt-2_wikitext_5k`) |
+| Wikipedia EN | ~4–7B (GPT-2 BPE) | **~120k–210k** | **~5–8.5 days** | 5,000 (`gpt-2_wikipedia_5k`) |
 | C4 EN | ~150–200B (Gemma / GPT-2) | **~4.6M–6.1M** | **~6–8 months** | 5,000 / 50,000 (`gemma_c4_*`) |
 
 ### Wall clock on Mist (RTX 3070)
@@ -96,7 +96,7 @@ Midpoint planning numbers:
 GPT-2 / NeoX Mist stacks use the same tokens/step as Gemma; wall clock can
 drift a bit with model size and micro-batch shape, so treat times as ±~25%.
 
-So `gpt2_wikitext_5k` is roughly **one full WikiText pass** (slightly over,
+So `gpt-2_wikitext_5k` is roughly **one full WikiText pass** (slightly over,
 ~5 hours). The Wikipedia and C4 5k/50k programs are short slices: useful for
 Mist smoke-runs, not full corpus coverage. A 50k-step C4 run (~48 h) covers
 about **1%** of one C4 epoch.
@@ -123,7 +123,7 @@ eval rows (`DEFAULT_SUBSET_*` in `alien_ink.hf.ds`).
 | **Factory** | `wikitext_103()`, `wikitext_103_subset()`, `wikitext_103_complete()` |
 | **License** | Creative Commons Attribution-ShareAlike |
 | **Paper** | Merity et al., *Pointer Sentinel Mixture Models* (2016) |
-| **Zdeck** | `alien_ink.zdeck.gpt2_wikitext_5k` |
+| **Zdeck** | `alien_ink/zdeck/gpt-2_wikitext_5k.py` |
 
 ### Character
 
@@ -172,7 +172,7 @@ Average non-empty Hub row is short (tens to low hundreds of words). After
 packing, the model mostly sees contiguous article fragments spanning multiple
 Hub rows.
 
-### Coverage under `gpt2_wikitext_5k`
+### Coverage under `gpt-2_wikitext_5k`
 
 That manifest runs **5,000** steps → ~164M tokens (~5 hours on Mist). Against
 ~120–150M GPT-2 tokens in train, that is about **1.1–1.4 epochs** — the only
@@ -200,7 +200,7 @@ web-scale robustness — prefer C4 for that.
 | **Hub** | `wikimedia/wikipedia`, config `20231101.en` |
 | **Factory** | `wikipedia_english()`, `wikipedia_english_subset()`, `wikipedia_english_complete()` |
 | **License** | CC BY-SA 3.0 / GFDL (Wikimedia dump terms) |
-| **Zdeck** | `alien_ink.zdeck.gpt2_wikipedia_5k` |
+| **Zdeck** | `alien_ink/zdeck/gpt-2_wikipedia_5k.py` |
 
 ### Character
 
@@ -232,7 +232,7 @@ are planning estimates, not measured Alien Ink re-tokenizations.
 `mode="complete"` downloads the full English split — large on disk; prefer
 `stream` on Mist (as the zdeck does).
 
-### Coverage under `gpt2_wikipedia_5k`
+### Coverage under `gpt-2_wikipedia_5k`
 
 That manifest runs **5,000** steps → ~164M tokens ≈ **2–4%** of one Wikipedia
 epoch (~5 hours on Mist). Finishing the dump at Mist GPT-2 throughput would take

@@ -28,7 +28,7 @@ from alien_ink.com.log import detail, get_logger, step
 
 log = get_logger("hf.model")
 
-ModelFamily = Literal["gpt2", "gpt_neox", "gemma"]
+ModelFamily = Literal["gpt-2", "gpt-neox", "gemma"]
 
 # Mist / RTX 3070 (~8 GB) friendly defaults for from-scratch pretraining.
 _MIST_GPT2 = dict(n_positions=1024, n_embd=768, n_layer=12, n_head=12)
@@ -51,7 +51,7 @@ class CausalLmArchConfig:
     are mapped onto each family's HF config. Defaults are Mist-sized.
     """
 
-    family: ModelFamily = "gpt2"
+    family: ModelFamily = "gpt-2"
     tokenizer_name: str = "gpt2"
     n_positions: int = 1024
     n_embd: int = 768
@@ -62,9 +62,9 @@ class CausalLmArchConfig:
     use_cache: bool = False
 
     def validate(self) -> None:
-        if self.family not in {"gpt2", "gpt_neox", "gemma"}:
+        if self.family not in {"gpt-2", "gpt-neox", "gemma"}:
             raise ValueError(
-                f"family must be one of gpt2, gpt_neox, gemma; got {self.family!r}"
+                f"family must be one of gpt-2, gpt-neox, gemma; got {self.family!r}"
             )
         if self.n_positions < 1:
             raise ValueError(f"n_positions must be >= 1, got {self.n_positions}")
@@ -90,7 +90,7 @@ class CausalLmArchConfig:
 def gpt2_arch(**overrides) -> CausalLmArchConfig:
     """Mist-sized GPT-2 (124M-class) from-scratch config."""
     return CausalLmArchConfig(
-        family="gpt2",
+        family="gpt-2",
         tokenizer_name=overrides.pop("tokenizer_name", "gpt2"),
         **{**_MIST_GPT2, **overrides},
     )
@@ -99,7 +99,7 @@ def gpt2_arch(**overrides) -> CausalLmArchConfig:
 def gpt_neox_arch(**overrides) -> CausalLmArchConfig:
     """Mist-sized GPT-NeoX from-scratch config."""
     return CausalLmArchConfig(
-        family="gpt_neox",
+        family="gpt-neox",
         tokenizer_name=overrides.pop("tokenizer_name", "EleutherAI/gpt-neox-20b"),
         **{**_MIST_GPT_NEOX, **overrides},
     )
@@ -139,7 +139,7 @@ def build_model_from_scratch(
 
     vocab_size = len(tokenizer) if hasattr(tokenizer, "__len__") else tokenizer.vocab_size
 
-    if arch.family == "gpt2":
+    if arch.family == "gpt-2":
         model_config = GPT2Config(
             vocab_size=vocab_size,
             n_positions=arch.n_positions,
@@ -148,7 +148,7 @@ def build_model_from_scratch(
             n_head=arch.n_head,
         )
         model: PreTrainedModel = GPT2LMHeadModel(model_config)
-    elif arch.family == "gpt_neox":
+    elif arch.family == "gpt-neox":
         intermediate = arch.intermediate_size or (4 * arch.n_embd)
         model_config = GPTNeoXConfig(
             vocab_size=vocab_size,
@@ -234,16 +234,16 @@ def load_pretrained_model(
     model_path: Path,
     device: str,
     *,
-    family: ModelFamily = "gpt2",
+    family: ModelFamily = "gpt-2",
     verbose: bool = True,
 ) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
     """Load a saved causal-LM checkpoint onto ``device`` in eval mode."""
     if verbose:
         step(f"Loading model from {model_path}...", logger=log)
     tokenizer = load_tokenizer(model_path)
-    if family == "gpt2":
+    if family == "gpt-2":
         model: PreTrainedModel = GPT2LMHeadModel.from_pretrained(model_path)
-    elif family == "gpt_neox":
+    elif family == "gpt-neox":
         model = GPTNeoXForCausalLM.from_pretrained(model_path)
     elif family == "gemma":
         model = GemmaForCausalLM.from_pretrained(model_path)

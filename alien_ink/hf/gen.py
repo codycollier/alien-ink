@@ -56,8 +56,8 @@ def _gemma_gen_config() -> GenConfig:
 
 
 _GEN_CONFIG_BY_FAMILY: dict[ModelFamily, GenConfig] = {
-    "gpt2": _default_gen_config(),
-    "gpt_neox": _default_gen_config(),
+    "gpt-2": _default_gen_config(),
+    "gpt-neox": _default_gen_config(),
     "gemma": _gemma_gen_config(),
 }
 
@@ -175,7 +175,7 @@ def collect_spot_check_prompts(
 def run_spot_check(
     *,
     output_dirs: list[Path] | tuple[Path, ...],
-    family: ModelFamily = "gpt2",
+    family: ModelFamily = "gpt-2",
     spot: SpotCheckConfig | None = None,
     text_source: HubTextSource | None = None,
     title: str = "Causal LM spot check",

@@ -1,11 +1,12 @@
 #!/usr/bin/env python
-"""Pretrain GPT-2 from scratch for 5k steps on streamed English Wikipedia.
+"""Pretrain Mist-sized GPT-NeoX from scratch for 0.125 epochs on WikiText-103.
 
-Sized for Mist (local RTX 3070, ~8 GB). Every manifest field is spelled out
-below for reproducibility — change values in place, do not rely on module
-defaults.
+Performance-baseline formule: short fractional-epoch run on fully materialized
+WikiText (``mode="complete"``) so wall-clock and throughput are comparable
+across hardware/config tweaks. Every manifest field is spelled out below for
+reproducibility — change values in place, do not rely on module defaults.
 
-  python -m alien_ink.zdeck.gpt2_wikipedia_5k
+  python alien_ink/zdeck/gpt-neox_wikitext_baseperf.py
 """
 
 from __future__ import annotations
@@ -20,17 +21,22 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="gpt2-wikipedia-5k-mist",
-    title="GPT-2 from scratch on English Wikipedia (5k steps)",
+    run_name="gpt-neox-wikitext-baseperf-mist",
+    title="GPT-NeoX from scratch on WikiText-103 (0.125 epochs, baseperf)",
     data=PretrainDataConfig(
         source=HubTextSource(
-            dataset="wikimedia/wikipedia",
-            name="20231101.en",
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
             split="train",
             text_column="text",
         ),
-        eval_source=None,
-        mode="stream",
+        eval_source=HubTextSource(
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
+            split="validation",
+            text_column="text",
+        ),
+        mode="complete",
         max_eval_samples=1_000,
         max_train_samples=None,
         stream_shuffle_buffer=10_000,
@@ -39,14 +45,14 @@ MANIFEST = Manifest(
         seed=101,
     ),
     model=CausalLmArchConfig(
-        family="gpt2",
-        tokenizer_name="gpt2",
+        family="gpt-neox",
+        tokenizer_name="EleutherAI/gpt-neox-20b",
         n_positions=1024,
         n_embd=768,
         n_layer=12,
         n_head=12,
         head_dim=None,
-        intermediate_size=None,
+        intermediate_size=3072,
         use_cache=False,
     ),
     hardware=HardwareConfig(
@@ -62,21 +68,23 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="gpt2-wikipedia-5k-mist",
+        name="gpt-neox-wikitext-baseperf-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
-        max_steps=5_000,
-        num_train_epochs=3.0,
+        max_steps=-1,
+        num_train_epochs=0.125,
         learning_rate=6e-4,
-        warmup_steps=200,
+        # ~4% of ~500 planned optimizer steps (≈0.125 epochs × ~4k steps/epoch).
+        warmup_steps=20,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
         seed=101,
-        logging_steps=5,
-        eval_steps=100,
-        save_steps=100,
+        # Epoch mode: cadence is derived from packed dataset length at train time.
+        logging_steps=None,
+        eval_steps=None,
+        save_steps=None,
         save_total_limit=2,
         early_stopping_patience=0,
     ),

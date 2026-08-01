@@ -189,7 +189,7 @@ card often has only ~7.2–7.5 GiB usable after the driver reserve.
 
 ## Worked Mist budgets
 
-### GPT-2 Mist (`gpt2_wikitext_5k` / `gpt2_wikipedia_5k`)
+### GPT-2 Mist (`gpt-2_wikitext_5k` / `gpt-2_wikipedia_5k`)
 
 `P ≈ 124M`, `B=2`, `S=1024`, `V≈50k`, checkpointing on, bf16/fp16.
 
