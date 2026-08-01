@@ -6,7 +6,7 @@ WikiText (``mode="complete"``) so wall-clock and throughput are comparable
 across hardware/config tweaks. Every manifest field is spelled out below for
 reproducibility — change values in place, do not rely on module defaults.
 
-  python alien_ink/zdeck/gpt-neox_wikitext_baseperf.py
+  python alien_ink/zdeck/pre_gpt-neox_wikitext_baseperf.py
 """
 
 from __future__ import annotations
@@ -21,8 +21,9 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="gpt-neox-wikitext-baseperf-mist",
+    run_name="pre-gpt-neox-wikitext-baseperf-mist",
     title="GPT-NeoX from scratch on WikiText-103 (0.25 epochs, baseperf)",
+    stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
             dataset="Salesforce/wikitext",
@@ -68,7 +69,7 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="gpt-neox-wikitext-baseperf-mist",
+        name="pre-gpt-neox-wikitext-baseperf-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(

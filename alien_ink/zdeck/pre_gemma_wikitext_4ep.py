@@ -1,13 +1,14 @@
 #!/usr/bin/env python
-"""Pretrain a Mist-sized Gemma from scratch for 5k steps on streamed C4.
+"""Pretrain Mist-sized Gemma from scratch for 4 epochs on WikiText-103.
 
 Uses a small Gemma architecture (not full Gemma-2B) so training fits on Mist
-(local RTX 3070, ~8 GB). Every manifest field is spelled out below for
+(local RTX 3070, ~8 GB). WikiText is fully materialized (``mode="complete"``)
+so epoch length is well-defined. Every manifest field is spelled out below for
 reproducibility — change values in place, do not rely on module defaults.
 
 Requires Hugging Face access to the Gemma tokenizer (`google/gemma-2b`).
 
-  python -m alien_ink.zdeck.gemma_c4_5k
+  python -m alien_ink.zdeck.pre_gemma_wikitext_4ep
 """
 
 from __future__ import annotations
@@ -22,22 +23,23 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="gemma-c4-5k-mist",
-    title="Gemma (Mist-sized) from scratch on C4 (5k steps)",
+    run_name="pre-gemma-wikitext-4ep-mist",
+    title="Gemma (Mist-sized) from scratch on WikiText-103 (4 epochs)",
+    stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
-            dataset="allenai/c4",
-            name="en",
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
             split="train",
             text_column="text",
         ),
         eval_source=HubTextSource(
-            dataset="allenai/c4",
-            name="en",
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
             split="validation",
             text_column="text",
         ),
-        mode="stream",
+        mode="complete",
         max_eval_samples=1_000,
         max_train_samples=None,
         stream_shuffle_buffer=10_000,
@@ -70,21 +72,23 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="gemma-c4-5k-mist",
+        name="pre-gemma-wikitext-4ep-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
-        max_steps=5_000,
-        num_train_epochs=3.0,
+        max_steps=-1,
+        num_train_epochs=4.0,
         learning_rate=6e-4,
-        warmup_steps=200,
+        # ~4% of ~16k planned optimizer steps (≈4 epochs × ~4k steps/epoch).
+        warmup_steps=640,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
         seed=101,
-        logging_steps=5,
-        eval_steps=100,
-        save_steps=100,
+        # Epoch mode: cadence is derived from packed dataset length at train time.
+        logging_steps=None,
+        eval_steps=None,
+        save_steps=None,
         save_total_limit=2,
         early_stopping_patience=0,
     ),

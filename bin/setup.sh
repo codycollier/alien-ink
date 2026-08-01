@@ -30,5 +30,5 @@ echo "> Environment is ready"
 echo "> Do:"
 echo "  source .venv/bin/activate"
 echo "  cp -n .env.example .env   # then fill HF_TOKEN / WANDB_API_KEY"
-echo "  python alien_ink/zdeck/gpt-2_wikitext_5k.py"
+echo "  python alien_ink/zdeck/pre_gpt-2_wikitext_5k.py"
 echo

@@ -16,26 +16,26 @@ mkdir -p output
 module=""
 script=""
 
-# script="alien_ink/zdeck/gpt-2_wikipedia_5k.py"
-# name="gpt-2-wikipedia-5k-mist"
+# script="alien_ink/zdeck/pre_gpt-2_wikipedia_5k.py"
+# name="pre-gpt-2-wikipedia-5k-mist"
 
-# script="alien_ink/zdeck/gpt-2_wikitext_5k.py"
-# name="gpt-2-wikitext-5k-mist"
+# script="alien_ink/zdeck/pre_gpt-2_wikitext_5k.py"
+# name="pre-gpt-2-wikitext-5k-mist"
 
-# module="alien_ink.zdeck.gemma_c4_5k"
-# name="gemma-c4-5k-mist"
+# module="alien_ink.zdeck.pre_gemma_c4_5k"
+# name="pre-gemma-c4-5k-mist"
 
-# module="alien_ink.zdeck.gemma_c4_50k"
-# name="gemma-c4-50k-mist"
+# module="alien_ink.zdeck.pre_gemma_c4_50k"
+# name="pre-gemma-c4-50k-mist"
 
-module="alien_ink.zdeck.gemma_wikitext_4ep"
-name="gemma-wikitext-4ep-mist"
+module="alien_ink.zdeck.pre_gemma_wikitext_4ep"
+name="pre-gemma-wikitext-4ep-mist"
 
-# script="alien_ink/zdeck/gpt-neox_wikitext_4ep.py"
-# name="gpt-neox-wikitext-4ep-mist"
+# script="alien_ink/zdeck/pre_gpt-neox_wikitext_4ep.py"
+# name="pre-gpt-neox-wikitext-4ep-mist"
 
-# script="alien_ink/zdeck/gpt-neox_wikitext_baseperf.py"
-# name="gpt-neox-wikitext-baseperf-mist"
+# script="alien_ink/zdeck/pre_gpt-neox_wikitext_baseperf.py"
+# name="pre-gpt-neox-wikitext-baseperf-mist"
 
 # ------------------------------------------------------------------------------
 

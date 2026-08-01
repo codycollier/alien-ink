@@ -172,18 +172,28 @@ Architecture and tokenizer are set in `CausalLmArchConfig` (`alien_ink.hf.model`
 
 ### GPT-NeoX (`family="gpt-neox"`)
 
-- Supported by the training stack but not yet used in a zdeck program. Same data syntax as GPT-2.
+- Typical zdeck pairings: WikiText-103 (complete / epoch mode). Same data syntax as GPT-2.
 
 ---
 
 ## Manifests and the zdeck
 
-A zdeck module is a Python file exporting a `MANIFEST`:
+A zdeck module is a Python file exporting a `MANIFEST`. Filenames and
+`run_name` values are **stage-prefixed**:
+
+| Layer | Pattern | Example |
+|---|---|---|
+| File | `{stage}_{family}_{corpus}_{budget}.py` | `pre_gemma_c4_5k.py` |
+| `run_name` / W&B | `{stage}-{family}-{corpus}-{budget}-{host}` | `pre-gemma-c4-5k-mist` |
+
+`stage` is a Manifest field: `"pre"` (from-scratch pretrain) or `"sft"`
+(supervised fine-tune; reserved — `train()` not implemented yet).
 
 ```python
 MANIFEST = Manifest(
-    run_name="gpt-2-wikitext-5k-mist",
+    run_name="pre-gpt-2-wikitext-5k-mist",
     title="GPT-2 from scratch on WikiText-103 (5k steps)",
+    stage="pre",
     data=PretrainDataConfig(...),
     model=CausalLmArchConfig(family="gpt-2", tokenizer_name="gpt2", ...),
     hardware=HardwareConfig(...),
@@ -206,18 +216,21 @@ output/<run_name>/
 
 | Module | Model family | Corpus |
 |---|---|---|
-| `alien_ink/zdeck/gpt-2_wikitext_5k.py` | GPT-2 | WikiText-103 (stream) |
-| `alien_ink/zdeck/gpt-2_wikipedia_5k.py` | GPT-2 | English Wikipedia (stream) |
-| `alien_ink.zdeck.gemma_c4_5k` | Gemma | C4 English (stream) |
-| `alien_ink.zdeck.gemma_c4_50k` | Gemma | C4 English (stream, 50k steps) |
+| `alien_ink/zdeck/pre_gpt-2_wikitext_5k.py` | GPT-2 | WikiText-103 (stream) |
+| `alien_ink/zdeck/pre_gpt-2_wikipedia_5k.py` | GPT-2 | English Wikipedia (stream) |
+| `alien_ink.zdeck.pre_gemma_c4_5k` | Gemma | C4 English (stream) |
+| `alien_ink.zdeck.pre_gemma_c4_50k` | Gemma | C4 English (stream, 50k steps) |
+| `alien_ink.zdeck.pre_gemma_wikitext_4ep` | Gemma | WikiText-103 (complete, 4 epochs) |
+| `alien_ink/zdeck/pre_gpt-neox_wikitext_4ep.py` | GPT-NeoX | WikiText-103 (complete, 4 epochs) |
+| `alien_ink/zdeck/pre_gpt-neox_wikitext_baseperf.py` | GPT-NeoX | WikiText-103 (complete, 0.25 epochs) |
 
 ### Running training
 
 From the repo root:
 
 ```bash
-python alien_ink/zdeck/gpt-2_wikitext_5k.py
-python -m alien_ink.zdeck.gemma_c4_5k
+python alien_ink/zdeck/pre_gpt-2_wikitext_5k.py
+python -m alien_ink.zdeck.pre_gemma_c4_5k
 ```
 
 Or in the background on Mist:
@@ -237,9 +250,9 @@ Do **not** use chat roles (`System:`, `User:`, `Assistant:`) — the model was n
 ### Interactive REPL
 
 ```bash
-./bin/model-chat-mist.py gpt-2_wikitext_5k
-./bin/model-chat-mist.py gemma_c4_5k
-./bin/model-chat-mist.py alien_ink.zdeck.gemma_c4_5k --max-new-tokens 120
+./bin/model-chat-mist.py pre_gpt-2_wikitext_5k
+./bin/model-chat-mist.py pre_gemma_c4_5k
+./bin/model-chat-mist.py alien_ink.zdeck.pre_gemma_c4_5k --max-new-tokens 120
 ```
 
 The script loads the manifest, resolves `output/<run_name>/`, and drives generation from `manifest.model.family`.
@@ -276,7 +289,7 @@ Stop strings are passed to Hugging Face `generate()` as native stopping criteria
 from alien_ink.hf.gen import run_spot_check, SpotCheckConfig
 
 run_spot_check(
-    output_dirs=[Path("output/gpt-2-wikitext-5k-mist")],
+    output_dirs=[Path("output/pre-gpt-2-wikitext-5k-mist")],
     family="gpt-2",
     spot=SpotCheckConfig(num_samples=5, do_sample=True),
 )
@@ -291,8 +304,8 @@ Default prompt seeds (`"The capital of France is"`, etc.) are short sentence sta
 | | WikiText-103 | Wikipedia EN | C4 EN |
 |---|---|---|---|
 | **GPT-2** | ✓ zdeck | ✓ zdeck | supported |
-| **Gemma** | supported | supported | ✓ zdeck |
-| **GPT-NeoX** | supported | supported | supported |
+| **Gemma** | ✓ zdeck | supported | ✓ zdeck |
+| **GPT-NeoX** | ✓ zdeck | supported | supported |
 
 “Supported” means the data loaders and training stack work; only cells marked **zdeck** have a checked-in manifest program today.
 
@@ -300,10 +313,11 @@ Default prompt seeds (`"The capital of France is"`, etc.) are short sentence sta
 
 ## Adding a new training program
 
-1. Copy an existing zdeck module under `alien_ink/zdeck/`.
-2. Set `data` to a `PretrainDataConfig` (or factory like `wikitext_103()`) pointing at your corpus.
-3. Set `model.family` and `model.tokenizer_name` to match.
-4. Ensure `data.block_size ≤ model.n_positions`.
-5. Run `python -m alien_ink.zdeck.your_program` and complete `./bin/model-chat-mist.py your_program` when checkpoints exist.
+1. Copy an existing zdeck module under `alien_ink/zdeck/`, keeping the stage prefix (`pre_…` or `sft_…`).
+2. Set `stage` and a matching `run_name` (`{stage}-{family}-{corpus}-{budget}-{host}`).
+3. Set `data` to a `PretrainDataConfig` (or factory like `wikitext_103()`) pointing at your corpus.
+4. Set `model.family` and `model.tokenizer_name` to match.
+5. Ensure `data.block_size ≤ model.n_positions`.
+6. Run `python -m alien_ink.zdeck.your_program` and complete `./bin/model-chat-mist.py your_program` when checkpoints exist.
 
 For a new Hub corpus, define a `HubTextSource` with the correct `text_column` name — most text datasets use `"text"`, but always verify on the Hub dataset card.

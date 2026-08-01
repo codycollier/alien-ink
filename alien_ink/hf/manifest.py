@@ -14,7 +14,10 @@ from __future__ import annotations
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
 from pathlib import Path
-from typing import Any
+from typing import Any, Literal
+
+ManifestStage = Literal["pre", "sft"]
+_VALID_STAGES: frozenset[str] = frozenset({"pre", "sft"})
 
 from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.model import CausalLmArchConfig, gpt2_arch
@@ -191,6 +194,10 @@ class ScheduleConfig:
 class Manifest:
     """Top-level training manifest: data ⊕ model ⊕ hardware ⊕ wandb ⊕ schedule.
 
+    ``stage`` distinguishes from-scratch pretraining (``pre``) from supervised
+    fine-tuning (``sft``). Zdeck filenames and ``run_name`` values should be
+    stage-prefixed (e.g. ``pre_gemma_c4_5k.py`` / ``pre-gemma-c4-5k-mist``).
+
     Materializes a :class:`~alien_ink.hf.pretrain.PretrainConfig` via
     :meth:`to_pretrain_config`. Compose ablations with :meth:`variant`,
     :meth:`with_hardware`, :meth:`with_data`, :meth:`with_model`,
@@ -200,6 +207,7 @@ class Manifest:
     run_name: str
     title: str
     data: PretrainDataConfig
+    stage: ManifestStage = "pre"
     model: CausalLmArchConfig = field(default_factory=gpt2_arch)
     hardware: HardwareConfig = field(default_factory=mist_rtx_3070)
     wandb: WandbConfig = field(default_factory=WandbConfig)
@@ -247,6 +255,10 @@ class Manifest:
             raise ValueError("run_name must be a non-empty string")
         if not self.title.strip():
             raise ValueError("title must be a non-empty string")
+        if self.stage not in _VALID_STAGES:
+            raise ValueError(
+                f"stage must be one of {sorted(_VALID_STAGES)}, got {self.stage!r}"
+            )
         self.data.validate()
         self.model.validate()
         self.hardware.validate()
@@ -293,11 +305,19 @@ class Manifest:
         return cfg
 
     def train(self, **pretrain_kwargs: Any):
-        """Run pretraining from this manifest.
+        """Run training from this manifest.
 
-        Extra kwargs are forwarded to :func:`~alien_ink.hf.pretrain.pretrain`
+        ``stage="pre"`` materializes a pretrain config and calls
+        :func:`~alien_ink.hf.pretrain.pretrain`. ``stage="sft"`` is reserved
+        and not implemented yet.
+
+        Extra kwargs are forwarded to the stage entrypoint
         (e.g. ``resume_from_checkpoint``, ``run_label``, ``env_files``).
         """
+        if self.stage == "sft":
+            raise NotImplementedError(
+                "Manifest.train() does not support stage='sft' yet"
+            )
         config = self.to_pretrain_config()
         run_label = pretrain_kwargs.pop("run_label", "zdeck")
         return pretrain(
@@ -309,6 +329,7 @@ class Manifest:
             wandb_name=self.wandb.resolved_name(self.run_name),
             use_wandb=self.wandb.enabled,
             extra_configs={
+                "stage": self.stage,
                 "hardware": self.hardware,
                 "schedule": self.schedule,
                 "wandb": self.wandb,

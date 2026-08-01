@@ -182,3 +182,18 @@ def test_manifest_gen_config_follows_model_family():
         stop_strings=(".", "!", "?"),
         add_special_tokens=False,
     )
+
+
+def test_manifest_stage_defaults_to_pre():
+    assert _manifest().stage == "pre"
+
+
+def test_manifest_stage_variant_and_validate():
+    assert _manifest().variant(stage="sft").stage == "sft"
+    with pytest.raises(ValueError, match="stage"):
+        _manifest().variant(stage="rlhf").validate()  # type: ignore[arg-type]
+
+
+def test_manifest_train_sft_not_implemented():
+    with pytest.raises(NotImplementedError, match="sft"):
+        _manifest(stage="sft").train()

@@ -1,11 +1,11 @@
 #!/usr/bin/env python
-"""Pretrain GPT-2 from scratch for 5k steps on streamed English Wikipedia.
+"""Pretrain GPT-2 from scratch for 5k steps on streamed WikiText-103.
 
 Sized for Mist (local RTX 3070, ~8 GB). Every manifest field is spelled out
 below for reproducibility — change values in place, do not rely on module
 defaults.
 
-  python alien_ink/zdeck/gpt-2_wikipedia_5k.py
+  python alien_ink/zdeck/pre_gpt-2_wikitext_5k.py
 """
 
 from __future__ import annotations
@@ -20,16 +20,22 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="gpt-2-wikipedia-5k-mist",
-    title="GPT-2 from scratch on English Wikipedia (5k steps)",
+    run_name="pre-gpt-2-wikitext-5k-mist",
+    title="GPT-2 from scratch on WikiText-103 (5k steps)",
+    stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
-            dataset="wikimedia/wikipedia",
-            name="20231101.en",
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
             split="train",
             text_column="text",
         ),
-        eval_source=None,
+        eval_source=HubTextSource(
+            dataset="Salesforce/wikitext",
+            name="wikitext-103-v1",
+            split="validation",
+            text_column="text",
+        ),
         mode="stream",
         max_eval_samples=1_000,
         max_train_samples=None,
@@ -62,7 +68,7 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="gpt-2-wikipedia-5k-mist",
+        name="pre-gpt-2-wikitext-5k-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
