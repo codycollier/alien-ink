@@ -329,7 +329,7 @@ class Manifest:
             wandb_name=self.wandb.resolved_name(self.run_name),
             use_wandb=self.wandb.enabled,
             extra_configs={
-                "stage": self.stage,
+                "stage": {"name": self.stage},
                 "hardware": self.hardware,
                 "schedule": self.schedule,
                 "wandb": self.wandb,

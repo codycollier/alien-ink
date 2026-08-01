@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import os
 from contextlib import contextmanager
-from dataclasses import asdict, fields
+from dataclasses import asdict
 from pathlib import Path
 from typing import Any, Iterator
 
@@ -58,7 +58,10 @@ def serialize_config(obj: Any) -> dict[str, Any]:
     elif isinstance(obj, dict):
         raw = dict(obj)
     else:
-        raw = {f.name: getattr(obj, f.name) for f in fields(obj)}
+        raise TypeError(
+            "serialize_config expects a dataclass or dict, "
+            f"got {type(obj).__name__}: {obj!r}"
+        )
     return {k: _convert(v) for k, v in raw.items()}
 
 

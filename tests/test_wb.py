@@ -46,6 +46,11 @@ def test_serialize_config_dict():
     assert serialize_config({"a": Path("p"), "b": 1}) == {"a": "p", "b": 1}
 
 
+def test_serialize_config_rejects_non_mapping():
+    with pytest.raises(TypeError, match="dataclass or dict"):
+        serialize_config("pre")
+
+
 def test_build_run_config_namespaces_multiple(monkeypatch):
     from alien_ink.com.device import AcceleratorInfo
 
