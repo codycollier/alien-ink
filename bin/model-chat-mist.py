@@ -76,32 +76,7 @@ def resolve_zdeck_module(name: str) -> str:
 
 def build_prompt(user_text: str) -> str:
     """Combine the hard-coded system prompt with a fresh user turn."""
-    return (
-        f"System: {SYSTEM_PROMPT}\n"
-        f"User: {user_text.strip()}\n"
-        f"Assistant:"
-    )
-
-
-def print_you(text: str) -> None:
-    print()
-    print(STAR.rstrip())
-    print("  YOU")
-    print(STAR.rstrip())
-    for line in text.splitlines() or [""]:
-        print(f"  {line}")
-    print()
-
-
-def print_model(text: str) -> None:
-    print(RULE)
-    print("  MODEL")
-    print(RULE)
-    body = text.strip() if text.strip() else "(empty completion)"
-    for line in body.splitlines() or [""]:
-        print(f"  {line}")
-    print(RULE)
-    print()
+    return f"System: {SYSTEM_PROMPT}\nUser: {user_text.strip()}\nAssistant:"
 
 
 def main(argv: list[str] | None = None) -> None:
@@ -163,10 +138,10 @@ def main(argv: list[str] | None = None) -> None:
     detail(f"System: {SYSTEM_PROMPT}", logger=log)
     blank(logger=log)
 
-    turn = 0
     while True:
+        print("--------------------------------------------------------------")
         try:
-            user_text = input("you › ").strip()
+            user_text = input("input› ").strip()
         except (EOFError, KeyboardInterrupt):
             print()
             step("Bye.", logger=log)
@@ -178,13 +153,11 @@ def main(argv: list[str] | None = None) -> None:
             step("Bye.", logger=log)
             return
 
-        turn += 1
-        print_you(user_text)
-        step(f"Completing turn {turn}...", logger=log)
+        step("Completing with model...", logger=log)
 
         prompt = build_prompt(user_text)
         try:
-            completion = generate_completion(
+            completions = generate_completion(
                 model,
                 tokenizer,
                 prompt,
@@ -198,7 +171,12 @@ def main(argv: list[str] | None = None) -> None:
             log.error("generation failed: %s", exc)
             continue
 
-        print_model(completion)
+        print(type(completions))
+        print(completions)
+        if completions:
+            for i, line in enumerate(completions.splitlines()):
+                output = line.strip()
+                print(f"[{i}] model> {output}")
 
 
 if __name__ == "__main__":
