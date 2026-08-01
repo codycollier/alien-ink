@@ -22,10 +22,6 @@ from contextlib import contextmanager
 from pathlib import Path
 from typing import Iterator
 
-REPO_ROOT = Path(__file__).resolve().parent.parent
-if str(REPO_ROOT) not in sys.path:
-    sys.path.insert(0, str(REPO_ROOT))
-
 from alien_ink.com.device import collect_accelerator_info, device_info
 from alien_ink.com.log import banner, blank, detail, get_logger, header, step
 from alien_ink.hf.gen import generate_completion
@@ -39,6 +35,8 @@ _WAIT_WIDTH = 14
 _WAIT_INTERVAL = 0.07
 _BLUE = "\033[34m"
 _RESET = "\033[0m"
+
+REPO_ROOT = Path(__file__).resolve().parent.parent
 
 
 @contextmanager
