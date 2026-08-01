@@ -41,7 +41,7 @@ from alien_ink.zdeck.pre_gemma_c4_5k_mist import MANIFEST
 
 # One-off tweaks via composition; for lasting ablations, copy a zdeck module
 MANIFEST.with_schedule(learning_rate=3e-4).variant(run_name="pre-wt-lr3e-4-mist").train()
-MANIFEST.with_hardware(per_device_train_batch_size=4, gradient_accumulation_steps=8).train()
+MANIFEST.with_hardware(per_device_train_batch_size=2, gradient_accumulation_steps=16).train()
 ```
 
 See `docs/` for data flow, families, corpora, and completion details.

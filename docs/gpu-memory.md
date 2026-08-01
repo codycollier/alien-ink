@@ -56,9 +56,9 @@ shape changes peak VRAM:
 
 ```
                  micro-batch B              accum → same 32,768 tok/step
-GPT-2            ████████████████  B=2      ×16     fits easily
-Gemma (zdeck)    ████████          B=1      ×32     fits tightly
-Gemma (avoid)    ████████████████  B=2      ×16     same tokens, often OOM
+GPT-2 / NeoX     ████████████████████  B=4  ×8      fits (ckpt off)
+Gemma (zdeck)    ████████              B=1  ×32     fits tightly (ckpt on)
+Gemma (avoid)    ████████████████████  B=2  ×16     same tokens, often OOM
 ```
 
 ---
@@ -247,7 +247,7 @@ the **fp32** column — cross-entropy often upcasts logits before the loss.
 Without checkpointing, every layer’s intermediates are retained for backward —
 memory grows roughly **linear in `L`**, and attention can grow with **`S²`**.
 
-With `gradient_checkpointing=True` (all Mist zdecks): only checkpoints are
+With `gradient_checkpointing=True` (Gemma Mist zdecks): only checkpoints are
 kept; intermediates are recomputed on backward. Activation memory drops by
 roughly an order of magnitude (≈√`L` or “one layer at a time”), at the cost of
 extra compute (~20–30% slower is typical).
@@ -286,7 +286,7 @@ card often has only ~7.2–7.5 GiB usable after the driver reserve.
 
 ### GPT-2 Mist (`gpt-2_wikitext_5k` / `gpt-2_wikipedia_5k`)
 
-`P ≈ 124M`, `B=2`, `S=1024`, `V≈50k`, checkpointing on, bf16/fp16.
+`P ≈ 124M`, `B=4`, `S=1024`, `V≈50k`, checkpointing off, bf16/fp16.
 
 ```
 Component              GiB     of 8 GiB card
@@ -294,15 +294,16 @@ Params (bf16)          0.23    #.......
 Grads                  0.23    #.......
 Adam m+v (fp32)        0.92    ####....
 (+ master, if any)     0.46    ##......
-Logits (fp16→fp32)   0.2–0.4   ##......
-Activations (ckpt)   0.5–1.5   ######..
+Logits (fp16→fp32)   0.4–0.8   ###.....
+Activations (no ckpt) 1.5–3.0  ##########
 Overhead             0.5–1.0   ####....
                        ────────────────────────
-Peak (typical)       ~3–5      ##############..............  of 8
+Peak (typical)       ~4–7      ######################......  of 8
 ```
 
-Headroom is why GPT-2 can use **micro-batch 2**. Effective batch 32 comes from
-`gradient_accumulation_steps=16` without extra VRAM for Adam.
+Headroom (vs Gemma) is why GPT-2 / NeoX use **micro-batch 4** with checkpointing
+off. Effective batch 32 comes from `gradient_accumulation_steps=8`. If this
+OOMs, turn checkpointing back on or drop to `B=2`.
 
 ### Gemma Mist (`gemma_c4_*`, `gemma_wikitext_4ep`)
 
@@ -332,10 +333,10 @@ the logit tensor.
 |---|---:|---:|
 | Dominant cost | Adam + activations | Adam + **vocab / logits** |
 | Static (12–16 B/`P`) | ~1.4–1.8 GiB | ~3.2–4.3 GiB |
-| Logits @ zdeck `B` | ~0.2–0.4 GiB | ~0.5–1.0 GiB |
-| Zdeck `B` × accum | 2 × 16 | 1 × 32 |
+| Logits @ zdeck `B` | ~0.4–0.8 GiB | ~0.5–1.0 GiB |
+| Zdeck `B` × accum | 4 × 8 | 1 × 32 |
 | Tokens / step | 32,768 | 32,768 |
-| Fits 8 GB? | Comfortably | Tight; `B=2` OOMs |
+| Fits 8 GB? | Yes (tighter w/ no ckpt) | Tight; `B=2` OOMs |
 
 ---
 
@@ -343,15 +344,16 @@ the logit tensor.
 
 | Knob | Effect on VRAM | Mist practice |
 |---|---|---|
-| `per_device_train_batch_size` | Linear in activations + logits | GPT-2: 2; Gemma: 1 |
+| `per_device_train_batch_size` | Linear in activations + logits | GPT-2/NeoX: 4; Gemma: 1 |
 | `gradient_accumulation_steps` | **None** on peak (same grad buffer) | Raise to keep effective batch |
 | `block_size` / `n_positions` | Linear in act/logits; attention worse than linear in `S` | Keep 1024 |
 | Vocab `V` | Linear in embed params + logits | Gemma’s main pressure |
 | `n_embd`, `n_layer` | Params + activations | Mist Gemma is shallow/narrow |
-| `gradient_checkpointing` | Large ↓ activations, ↑ time | **Always on** in zdecks |
+| `gradient_checkpointing` | Large ↓ activations, ↑ time | Off for GPT-2/NeoX; **on** for Gemma |
 | `prefer_bf16` / `prefer_fp16` | ~2× vs fp32 weights/acts | Prefer bf16, else fp16 |
+| `torch_compile` / `tf32` / fused Adam | Speed; modest VRAM for compile | On for all Mist zdecks |
 | Dataset / `max_steps` | No GPU effect | Stream on host |
-| `dataloader_num_workers` | Host RAM / CPU, not VRAM | 2 |
+| `dataloader_num_workers` | Host RAM / CPU, not VRAM | 8 (+ prefetch 4) |
 
 ```
 Knob → VRAM sensitivity (Mist)
@@ -373,7 +375,7 @@ tokens_per_step = B × gradient_accumulation_steps × block_size
 
 | | `B` | accum | `block_size` | tokens/step |
 |---|---:|---:|---:|---:|
-| GPT-2 | 2 | 16 | 1024 | 32,768 |
+| GPT-2 / NeoX | 4 | 8 | 1024 | 32,768 |
 | Gemma | 1 | 32 | 1024 | 32,768 |
 
 ---
@@ -392,14 +394,14 @@ estimate_GiB ≈ P×12/1024³ + B×S×V×4/1024³ + 1.5
 
 | Family | Plug-in | Estimate | 8 GB? |
 |---|---|---:|---|
-| GPT-2, B=2 | 124e6×12 + 2×1024×5e4×4 + 1.5 | ~3.3 | yes |
+| GPT-2, B=4 | 124e6×12 + 4×1024×5e4×4 + 2.5 | ~5.0 | yes (no ckpt) |
 | Gemma, B=1 | 290e6×12 + 1×1024×256e3×4 + 1.5 | ~5.7 | yes (tight) |
 | Gemma, B=2 | 290e6×12 + 2×1024×256e3×4 + 1.5 | ~7.6 | often OOM |
 
 ```
 Recipe estimates vs 8 GiB card
 
-GPT-2 B=2   #############.................  ~3.3   ✓
+GPT-2 B=4   ####################..........  ~5.0   ✓ (no ckpt)
 Gemma B=1   ######################........  ~5.7   ✓ tight
 Gemma B=2   ##############################  ~7.6   ✗ often OOM
             0         2         4         6         8 GiB
@@ -409,7 +411,8 @@ Gemma B=2   ##############################  ~7.6   ✗ often OOM
 
 ## Mapping to Alien Ink knobs
 
-All of the above are controlled from the manifest:
+All of the above are controlled from the manifest. Named profiles:
+``mist_rtx_3070()`` (GPT-2 / NeoX) and ``mist_rtx_3070_gemma()``.
 
 ```python
 hardware=HardwareConfig(
@@ -417,7 +420,11 @@ hardware=HardwareConfig(
     gradient_accumulation_steps=...,  # effective batch; not peak VRAM
     prefer_bf16=True,
     prefer_fp16=True,
-    gradient_checkpointing=True,     # activation memory
+    gradient_checkpointing=...,      # off for GPT-2/NeoX; on for Gemma
+    torch_compile=True,
+    tf32=True,
+    optim="adamw_torch_fused",
+    dataloader_num_workers=8,
 )
 # data.block_size → S
 # model.n_embd / n_layer / tokenizer → H, L, V → P and logits

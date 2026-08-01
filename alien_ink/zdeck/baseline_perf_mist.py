@@ -6,6 +6,14 @@ WikiText (``mode="complete"``) so wall-clock and throughput are comparable
 across hardware/config tweaks. Every manifest field is spelled out below for
 reproducibility — change values in place, do not rely on module defaults.
 
+Speed notes (nanochat-inspired, tuned for Mist: 16-core / 94 GB / RTX 3070 8 GB):
+  - Larger micro-batch (4) with fewer accum steps keeps tokens/step at 32,768
+    while cutting Python / launch overhead (nanochat: push device-batch-size).
+  - Checkpointing off: Mist NeoX has VRAM headroom; rematerialization costs
+    wall-clock. If this OOMs, set ``gradient_checkpointing=True`` first.
+  - ``torch.compile`` + TF32 (Ampere) + fused AdamW for kernel efficiency.
+  - Host has spare CPU/RAM: more tokenize procs, dataloader workers, prefetch.
+
   python -m alien_ink.zdeck.baseline_perf_mist
 """
 
@@ -42,7 +50,7 @@ MANIFEST = Manifest(
         max_train_samples=None,
         stream_shuffle_buffer=10_000,
         block_size=1024,
-        tokenizer_num_proc=4,
+        tokenizer_num_proc=8,
         seed=101,
     ),
     model=CausalLmArchConfig(
@@ -58,13 +66,18 @@ MANIFEST = Manifest(
     ),
     hardware=HardwareConfig(
         label="mist-rtx-3070",
-        per_device_train_batch_size=2,
-        per_device_eval_batch_size=2,
-        gradient_accumulation_steps=16,
-        dataloader_num_workers=2,
+        per_device_train_batch_size=4,
+        per_device_eval_batch_size=4,
+        gradient_accumulation_steps=8,
+        dataloader_num_workers=8,
+        dataloader_prefetch_factor=4,
+        dataloader_persistent_workers=True,
         prefer_bf16=True,
         prefer_fp16=True,
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
+        tf32=True,
+        torch_compile=True,
+        optim="adamw_torch_fused",
     ),
     wandb=WandbConfig(
         entity="logbook",
@@ -76,8 +89,9 @@ MANIFEST = Manifest(
         max_steps=-1,
         num_train_epochs=0.25,
         learning_rate=6e-4,
-        # ~4% of ~1k planned optimizer steps (≈0.25 epochs × ~4k steps/epoch).
-        warmup_steps=40,
+        # ~4% of ~500 planned optimizer steps (≈0.25 epochs × ~2k steps/epoch
+        # at micro-batch 4).
+        warmup_steps=20,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",

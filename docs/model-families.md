@@ -231,12 +231,13 @@ WikiText / Wikipedia are supported by the stack; C4 is the archived pairing.
 
 ## Parameter and VRAM intuition
 
-Rough Mist footprints (order of magnitude, training with checkpointing):
+Rough Mist footprints (order of magnitude; GPT-2/NeoX without checkpointing,
+Gemma with checkpointing):
 
 | Family | Params | Embedding pressure | Typical train batch |
 |---|---:|---|---:|
-| GPT-2 | ~124M | Low (~50k vocab) | 2 × accum 16 |
-| GPT-NeoX | ~125M | Low (~50k vocab) | start like GPT-2 |
+| GPT-2 | ~124M | Low (~50k vocab) | 4 × accum 8 |
+| GPT-NeoX | ~125M | Low (~50k vocab) | 4 × accum 8 |
 | Gemma Mist | ~290M | High (~256k vocab) | 1 × accum 32 |
 
 For any family, increasing `n_positions` or batch size costs activation memory

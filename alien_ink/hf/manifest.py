@@ -31,6 +31,7 @@ __all__ = [
     "ScheduleConfig",
     "WandbConfig",
     "mist_rtx_3070",
+    "mist_rtx_3070_gemma",
     "scaled_trainer_steps",
 ]
 
@@ -67,14 +68,23 @@ class HardwareConfig:
     hardware. Dataset, model architecture, W&B identity, and schedule stay put.
     """
 
+    # Defaults match :func:`mist_rtx_3070` (GPT-2 / NeoX class on ~8 GB).
     label: str = "mist-rtx-3070"
-    per_device_train_batch_size: int = 2
-    per_device_eval_batch_size: int = 2
-    gradient_accumulation_steps: int = 16
-    dataloader_num_workers: int = 2
+    per_device_train_batch_size: int = 4
+    per_device_eval_batch_size: int = 4
+    gradient_accumulation_steps: int = 8
+    dataloader_num_workers: int = 8
+    # None => HF default (2 when workers > 0). Raise on hosts with spare RAM/CPU.
+    dataloader_prefetch_factor: int | None = 4
+    dataloader_persistent_workers: bool = True
     prefer_bf16: bool = True
     prefer_fp16: bool = True
-    gradient_checkpointing: bool = True
+    gradient_checkpointing: bool = False
+    # Ampere+ TF32 tensor cores; None leaves the HF / torch default alone.
+    tf32: bool | None = True
+    torch_compile: bool = True
+    # ``adamw_torch_fused`` is faster on CUDA when the PyTorch build supports it.
+    optim: str = "adamw_torch_fused"
 
     @property
     def effective_batch_size(self) -> int:
@@ -102,11 +112,46 @@ class HardwareConfig:
             raise ValueError(
                 f"dataloader_num_workers must be >= 0, got {self.dataloader_num_workers}"
             )
+        if (
+            self.dataloader_prefetch_factor is not None
+            and self.dataloader_prefetch_factor < 1
+        ):
+            raise ValueError(
+                "dataloader_prefetch_factor must be >= 1 when set, "
+                f"got {self.dataloader_prefetch_factor}"
+            )
+        if self.dataloader_persistent_workers and self.dataloader_num_workers < 1:
+            raise ValueError(
+                "dataloader_persistent_workers requires dataloader_num_workers >= 1"
+            )
+        if not self.optim.strip():
+            raise ValueError("optim must be a non-empty string")
 
 
 def mist_rtx_3070() -> HardwareConfig:
-    """Mist / local RTX 3070 (~8 GB): microbatch 2 × accum 16 = effective 32."""
+    """Mist / RTX 3070 (~8 GB) for GPT-2 / NeoX-class models.
+
+    Microbatch 4 × accum 8 = effective 32. Checkpointing off (VRAM headroom);
+    ``torch.compile`` + TF32 + fused AdamW; host dataloader tuned for 16 cores /
+    ~94 GB RAM. If this OOMs, set ``gradient_checkpointing=True`` or drop
+    microbatch to 2.
+    """
     return HardwareConfig()
+
+
+def mist_rtx_3070_gemma() -> HardwareConfig:
+    """Mist / RTX 3070 (~8 GB) for Mist-sized Gemma (large vocab / logits).
+
+    Microbatch 1 × accum 32 = effective 32. Checkpointing stays on — batch 2
+    OOMs from ~256k-vocab logits. Same compile / TF32 / fused Adam / host
+    dataloader knobs as :func:`mist_rtx_3070`.
+    """
+    return HardwareConfig(
+        per_device_train_batch_size=1,
+        per_device_eval_batch_size=1,
+        gradient_accumulation_steps=32,
+        gradient_checkpointing=True,
+    )
 
 
 @dataclass(frozen=True)
@@ -294,9 +339,14 @@ class Manifest:
             per_device_eval_batch_size=self.hardware.per_device_eval_batch_size,
             gradient_accumulation_steps=self.hardware.gradient_accumulation_steps,
             dataloader_num_workers=self.hardware.dataloader_num_workers,
+            dataloader_prefetch_factor=self.hardware.dataloader_prefetch_factor,
+            dataloader_persistent_workers=self.hardware.dataloader_persistent_workers,
             prefer_bf16=self.hardware.prefer_bf16,
             prefer_fp16=self.hardware.prefer_fp16,
             gradient_checkpointing=self.hardware.gradient_checkpointing,
+            tf32=self.hardware.tf32,
+            torch_compile=self.hardware.torch_compile,
+            optim=self.hardware.optim,
             report_to="wandb" if self.wandb.enabled else "none",
             **dict(self.trainer_overrides),
         )

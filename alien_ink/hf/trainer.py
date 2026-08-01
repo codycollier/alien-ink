@@ -87,6 +87,11 @@ class CausalLmTrainerConfig:
     prefer_bf16: bool = True
     gradient_checkpointing: bool = True
     dataloader_num_workers: int = 2
+    dataloader_prefetch_factor: int | None = None
+    dataloader_persistent_workers: bool = False
+    tf32: bool | None = None
+    torch_compile: bool = False
+    optim: str = "adamw_torch"
     run_name: str = "causal-lm"
     report_to: str = "wandb"
     resume_from_checkpoint: str | Path | bool | None = None
@@ -124,6 +129,20 @@ class CausalLmTrainerConfig:
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
         if self.warmup_steps < 0:
             raise ValueError(f"warmup_steps must be >= 0, got {self.warmup_steps}")
+        if (
+            self.dataloader_prefetch_factor is not None
+            and self.dataloader_prefetch_factor < 1
+        ):
+            raise ValueError(
+                "dataloader_prefetch_factor must be >= 1 when set, "
+                f"got {self.dataloader_prefetch_factor}"
+            )
+        if self.dataloader_persistent_workers and self.dataloader_num_workers < 1:
+            raise ValueError(
+                "dataloader_persistent_workers requires dataloader_num_workers >= 1"
+            )
+        if not self.optim.strip():
+            raise ValueError("optim must be a non-empty string")
 
 
 def tokens_per_optimizer_step(
@@ -275,7 +294,8 @@ def build_training_arguments(
     else:
         eval_strategy = "steps"
 
-    return TrainingArguments(
+    num_workers = config.dataloader_num_workers if device == "cuda" else 0
+    args: dict[str, Any] = dict(
         output_dir=str(config.output_dir),
         max_steps=config.max_steps,
         num_train_epochs=config.num_train_epochs,
@@ -290,6 +310,7 @@ def build_training_arguments(
         max_grad_norm=config.max_grad_norm,
         adam_beta1=config.adam_beta1,
         adam_beta2=config.adam_beta2,
+        optim=config.optim,
         logging_steps=config.logging_steps,
         eval_strategy=eval_strategy,
         eval_steps=config.eval_steps,
@@ -301,15 +322,21 @@ def build_training_arguments(
         greater_is_better=False,
         bf16=use_bf16,
         fp16=use_fp16,
+        tf32=config.tf32,
+        torch_compile=config.torch_compile,
         report_to=report_to,
         run_name=config.run_name,
         dataloader_pin_memory=device == "cuda",
-        dataloader_num_workers=(
-            config.dataloader_num_workers if device == "cuda" else 0
+        dataloader_num_workers=num_workers,
+        dataloader_persistent_workers=(
+            config.dataloader_persistent_workers and num_workers > 0
         ),
         seed=config.seed,
         remove_unused_columns=False,
     )
+    if config.dataloader_prefetch_factor is not None and num_workers > 0:
+        args["dataloader_prefetch_factor"] = config.dataloader_prefetch_factor
+    return TrainingArguments(**args)
 
 
 def build_lm_data_collator(tokenizer) -> DataCollatorForLanguageModeling:

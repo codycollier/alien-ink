@@ -16,6 +16,7 @@ from alien_ink.hf.manifest import (  # noqa: E402
     ScheduleConfig,
     WandbConfig,
     mist_rtx_3070,
+    mist_rtx_3070_gemma,
     scaled_trainer_steps,
 )
 
@@ -60,7 +61,23 @@ def test_scaled_trainer_steps_short_run():
 def test_mist_rtx_3070_effective_batch():
     hw = mist_rtx_3070()
     assert hw.label == "mist-rtx-3070"
+    assert hw.per_device_train_batch_size == 4
+    assert hw.gradient_accumulation_steps == 8
     assert hw.effective_batch_size == 32
+    assert hw.torch_compile is True
+    assert hw.gradient_checkpointing is False
+    assert hw.optim == "adamw_torch_fused"
+
+
+def test_mist_rtx_3070_gemma_keeps_vram_safe_microbatch():
+    hw = mist_rtx_3070_gemma()
+    assert hw.label == "mist-rtx-3070"
+    assert hw.per_device_train_batch_size == 1
+    assert hw.gradient_accumulation_steps == 32
+    assert hw.effective_batch_size == 32
+    assert hw.gradient_checkpointing is True
+    assert hw.torch_compile is True
+    assert hw.optim == "adamw_torch_fused"
 
 
 def test_manifest_to_pretrain_config_merges_segments(tmp_path: Path, monkeypatch):
@@ -74,8 +91,9 @@ def test_manifest_to_pretrain_config_merges_segments(tmp_path: Path, monkeypatch
     assert cfg.trainer.run_name == "test-run"
     assert cfg.trainer.max_steps == 5_000
     assert cfg.trainer.warmup_steps == 200
-    assert cfg.trainer.per_device_train_batch_size == 2
-    assert cfg.trainer.gradient_accumulation_steps == 16
+    assert cfg.trainer.per_device_train_batch_size == 4
+    assert cfg.trainer.gradient_accumulation_steps == 8
+    assert cfg.trainer.torch_compile is True
     assert cfg.trainer.logging_steps == 5
     assert cfg.trainer.eval_steps == 100
     assert cfg.trainer.save_steps == 100
@@ -163,6 +181,38 @@ def test_manifest_validate_block_vs_positions():
 def test_hardware_config_validate():
     with pytest.raises(ValueError, match="per_device_train_batch_size"):
         HardwareConfig(per_device_train_batch_size=0).validate()
+    with pytest.raises(ValueError, match="dataloader_prefetch_factor"):
+        HardwareConfig(dataloader_prefetch_factor=0).validate()
+    with pytest.raises(ValueError, match="dataloader_persistent_workers"):
+        HardwareConfig(
+            dataloader_num_workers=0,
+            dataloader_persistent_workers=True,
+        ).validate()
+
+
+def test_manifest_speed_hardware_knobs(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    manifest = _manifest().with_hardware(
+        per_device_train_batch_size=4,
+        gradient_accumulation_steps=8,
+        dataloader_num_workers=8,
+        dataloader_prefetch_factor=4,
+        dataloader_persistent_workers=True,
+        gradient_checkpointing=False,
+        tf32=True,
+        torch_compile=True,
+        optim="adamw_torch_fused",
+    )
+    cfg = manifest.to_pretrain_config()
+    assert cfg.trainer.per_device_train_batch_size == 4
+    assert cfg.trainer.gradient_accumulation_steps == 8
+    assert cfg.trainer.dataloader_num_workers == 8
+    assert cfg.trainer.dataloader_prefetch_factor == 4
+    assert cfg.trainer.dataloader_persistent_workers is True
+    assert cfg.trainer.gradient_checkpointing is False
+    assert cfg.trainer.tf32 is True
+    assert cfg.trainer.torch_compile is True
+    assert cfg.trainer.optim == "adamw_torch_fused"
 
 
 def test_manifest_gen_config_follows_model_family():

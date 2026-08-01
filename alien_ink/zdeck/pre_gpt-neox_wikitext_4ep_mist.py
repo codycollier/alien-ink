@@ -42,7 +42,7 @@ MANIFEST = Manifest(
         max_train_samples=None,
         stream_shuffle_buffer=10_000,
         block_size=1024,
-        tokenizer_num_proc=4,
+        tokenizer_num_proc=8,
         seed=101,
     ),
     model=CausalLmArchConfig(
@@ -58,13 +58,18 @@ MANIFEST = Manifest(
     ),
     hardware=HardwareConfig(
         label="mist-rtx-3070",
-        per_device_train_batch_size=2,
-        per_device_eval_batch_size=2,
-        gradient_accumulation_steps=16,
-        dataloader_num_workers=2,
+        per_device_train_batch_size=4,
+        per_device_eval_batch_size=4,
+        gradient_accumulation_steps=8,
+        dataloader_num_workers=8,
+        dataloader_prefetch_factor=4,
+        dataloader_persistent_workers=True,
         prefer_bf16=True,
         prefer_fp16=True,
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
+        tf32=True,
+        torch_compile=True,
+        optim="adamw_torch_fused",
     ),
     wandb=WandbConfig(
         entity="logbook",
@@ -76,8 +81,9 @@ MANIFEST = Manifest(
         max_steps=-1,
         num_train_epochs=4.0,
         learning_rate=6e-4,
-        # ~4% of ~16k planned optimizer steps (≈4 epochs × ~4k steps/epoch).
-        warmup_steps=640,
+        # ~4% of ~8k planned optimizer steps (≈4 epochs × ~2k steps/epoch
+        # at micro-batch 4).
+        warmup_steps=320,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",

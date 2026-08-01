@@ -192,6 +192,12 @@ def log_pretrain_banner(
         )
     if config.trainer.gradient_checkpointing:
         step("Gradient checkpointing enabled", logger=log)
+    if config.trainer.torch_compile:
+        step("torch.compile enabled", logger=log)
+    if config.trainer.tf32 is True:
+        step("TF32 enabled", logger=log)
+    if config.trainer.optim != "adamw_torch":
+        detail(f"optimizer: {config.trainer.optim}", logger=log)
     return accel, tps
 
 

@@ -124,6 +124,35 @@ def test_build_training_arguments_epoch_strategy(monkeypatch, tmp_path: Path):
     assert args.save_steps == 100
 
 
+def test_build_training_arguments_speed_knobs(monkeypatch, tmp_path: Path):
+    from alien_ink.hf import trainer as trainer_mod
+
+    monkeypatch.setattr(
+        trainer_mod,
+        "device_info",
+        lambda **_kwargs: ("cuda", False, True),
+    )
+    cfg = CausalLmTrainerConfig(
+        output_dir=tmp_path / "out",
+        max_steps=100,
+        dataloader_num_workers=8,
+        dataloader_prefetch_factor=4,
+        dataloader_persistent_workers=True,
+        tf32=True,
+        torch_compile=True,
+        optim="adamw_torch_fused",
+        gradient_checkpointing=False,
+    )
+    args = trainer_mod.build_training_arguments(cfg, has_eval=False)
+    assert args.dataloader_num_workers == 8
+    assert args.dataloader_prefetch_factor == 4
+    assert args.dataloader_persistent_workers is True
+    assert args.tf32 is True
+    assert args.torch_compile is True
+    assert args.optim == "adamw_torch_fused"
+    assert args.gradient_checkpointing is False
+
+
 def test_optimizer_steps_per_epoch_matches_hf_ceil_math():
     # 100 examples, batch 8, world 1 → 13 dataloader batches; accum 4 → 4 steps.
     assert (

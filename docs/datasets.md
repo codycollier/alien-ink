@@ -57,8 +57,8 @@ tokens_per_step = per_device_batch × gradient_accumulation × block_size
 
 | Zdeck | Batch × accum | Why |
 |---|---|---|
-| GPT-2 (`gpt-2_wikitext_5k`, `gpt-2_wikipedia_5k`) | 2 × 16 | Baseline Mist stack |
-| Gemma (`gemma_c4_*`) | 1 × 32 | Smaller micro-batch (256k vocab logits); accum raised to match |
+| GPT-2 / NeoX | 4 × 8 | Larger micro-batch; checkpointing off on Mist |
+| Gemma (`gemma_c4_*`, `gemma_wikitext_4ep`) | 1 × 32 | Smaller micro-batch (256k vocab logits); ckpt on |
 
 Calibration (Mist Gemma C4): **~50,000 steps ≈ 48 h** (≈3.5 s/step). Scale
 linearly: `hours ≈ steps × (48 / 50_000)`. GPT-2 / NeoX wall clock can drift
