@@ -5,8 +5,8 @@ Each turn is a fresh completion — no chat history. The hard-coded system promp
 plus your typed line are sent as a single prompt; the model reply is printed
 clearly so you can spot-check quality.
 
-  ./bin/chat_mist.py gpt2_wikitext_5k
-  ./bin/chat_mist.py alien_ink.zdeck.gemma_c4_5k --max-new-tokens 120
+  ./bin/model-chat-mist.py gpt2_wikitext_5k
+  ./bin/model-chat-mist.py alien_ink.zdeck.gemma_c4_5k --max-new-tokens 120
 
 Requires a finished (or checkpointed) run under ``output/<run_name>/``.
 """
@@ -14,19 +14,27 @@ Requires a finished (or checkpointed) run under ``output/<run_name>/``.
 from __future__ import annotations
 
 import argparse
+import importlib
 import os
 import sys
 from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
+from alien_ink.com.device import collect_accelerator_info, device_info
+from alien_ink.com.log import banner, blank, detail, get_logger, header, step
+from alien_ink.hf.gen import generate_completion
+from alien_ink.hf.manifest import Manifest
+from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 
 SYSTEM_PROMPT = (
     "You are a helpful, concise assistant written in alien ink. "
     "Answer clearly and directly in plain language."
 )
 
-RULE = "-" * 70
-STAR = "* " * 35
+log = get_logger("bin.chat")
 
 
 def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
@@ -42,24 +50,6 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
         type=int,
         default=120,
         help="Max new tokens per completion (default: 120)",
-    )
-    parser.add_argument(
-        "--temperature",
-        type=float,
-        default=0.8,
-        help="Sampling temperature (default: 0.8)",
-    )
-    parser.add_argument(
-        "--top-p",
-        type=float,
-        default=0.95,
-        help="Nucleus sampling top_p (default: 0.95)",
-    )
-    parser.add_argument(
-        "--top-k",
-        type=int,
-        default=50,
-        help="Top-k sampling (default: 50)",
     )
     return parser.parse_args(argv)
 
@@ -81,21 +71,7 @@ def build_prompt(user_text: str) -> str:
 
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
-
-    # Resolve paths before importing the training stack.
-    if str(REPO_ROOT) not in sys.path:
-        sys.path.insert(0, str(REPO_ROOT))
     os.chdir(REPO_ROOT)
-
-    import importlib
-
-    from alien_ink.com.device import collect_accelerator_info, device_info
-    from alien_ink.com.log import banner, blank, detail, get_logger, header, step
-    from alien_ink.hf.gen import generate_completion
-    from alien_ink.hf.manifest import Manifest
-    from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
-
-    log = get_logger("bin.chat")
 
     module_name = resolve_zdeck_module(args.zdeck)
     try:
@@ -129,7 +105,6 @@ def main(argv: list[str] | None = None) -> None:
         device,
         family=manifest.model.family,
     )
-    # Training saves with use_cache=False for grad checkpointing.
     model.config.use_cache = True
 
     blank(logger=log)
@@ -157,26 +132,19 @@ def main(argv: list[str] | None = None) -> None:
 
         prompt = build_prompt(user_text)
         try:
-            completions = generate_completion(
+            completion = generate_completion(
                 model,
                 tokenizer,
                 prompt,
                 device,
                 max_new_tokens=args.max_new_tokens,
-                top_k=args.top_k,
-                top_p=args.top_p,
-                temperature=args.temperature,
             )
         except Exception as exc:
             log.error("generation failed: %s", exc)
             continue
 
-        print(type(completions))
-        print(completions)
-        if completions:
-            for i, line in enumerate(completions.splitlines()):
-                output = line.strip()
-                print(f"[{i}] model> {output}")
+        if completion:
+            print(f"model> {completion}")
 
 
 if __name__ == "__main__":

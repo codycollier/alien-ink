@@ -36,6 +36,7 @@ class SpotCheckConfig:
     num_samples: int = 5
     max_new_tokens: int = 80
     seed: int = 101
+    do_sample: bool = True
     top_k: int = 50
     top_p: float = 0.95
     temperature: float = 0.8
@@ -76,22 +77,23 @@ def generate_completion(
     device: str,
     *,
     max_new_tokens: int = 80,
+    do_sample: bool = False,
     top_k: int = 50,
     top_p: float = 0.95,
     temperature: float = 0.8,
 ) -> str:
-    """Generate a completion for ``prompt`` and return only the new text."""
+    """Generate a single completion for ``prompt`` and return only the new text."""
     target = torch_device(device)
     inputs = tokenizer(prompt, return_tensors="pt").to(target)
-    output_ids = model.generate(
-        **inputs,
-        max_new_tokens=max_new_tokens,
-        do_sample=True,
-        top_k=top_k,
-        top_p=top_p,
-        temperature=temperature,
-        pad_token_id=tokenizer.pad_token_id,
-    )
+    gen_kwargs: dict = {
+        "max_new_tokens": max_new_tokens,
+        "do_sample": do_sample,
+        "num_return_sequences": 1,
+        "pad_token_id": tokenizer.pad_token_id,
+    }
+    if do_sample:
+        gen_kwargs.update(top_k=top_k, top_p=top_p, temperature=temperature)
+    output_ids = model.generate(**inputs, **gen_kwargs)
     full_text = tokenizer.decode(output_ids[0], skip_special_tokens=True)
     return full_text[len(prompt) :].strip()
 
@@ -155,6 +157,7 @@ def run_spot_check(
             prompt,
             device,
             max_new_tokens=spot.max_new_tokens,
+            do_sample=spot.do_sample,
             top_k=spot.top_k,
             top_p=spot.top_p,
             temperature=spot.temperature,
