@@ -5,7 +5,7 @@ data flows from Hub text into checkpoints and completions.
 
 | Doc | Contents |
 |---|---|
-| [Datasets](datasets.md) | WikiText-103, English Wikipedia, C4 — sizes, character, eval, Mist token budgets |
+| [Datasets](datasets.md) | WikiText-103, English Wikipedia, C4 — sizes, character, Mist steps/epoch |
 | [Model families](model-families.md) | GPT-2, GPT-NeoX, Gemma — architecture, tokenizers, VRAM, zdeck pairings |
 | [Pretraining and completion](pretraining-and-completion.md) | Pipeline, load modes, packing, manifests, generation REPL |
 

@@ -21,10 +21,12 @@ on the manifest (no package defaults). Swap or retune `hardware` when moving
 GPUs; clone a zdeck program when preserving an ablation over time.
 
 ```bash
-python -m alien_ink.zdeck.gpt2_wikipedia_5k   # GPT-2, 5k steps, Wikipedia stream
-python -m alien_ink.zdeck.gpt2_wikitext_5k    # GPT-2, 5k steps, WikiText stream
-python -m alien_ink.zdeck.gemma_c4_5k         # Gemma (Mist-sized), 5k steps, C4 stream
-python -m alien_ink.zdeck.gemma_c4_50k        # Gemma (Mist-sized), 50k steps, C4 stream
+python -m alien_ink.zdeck.gpt2_wikipedia_5k      # GPT-2, 5k steps, Wikipedia stream
+python -m alien_ink.zdeck.gpt2_wikitext_5k       # GPT-2, 5k steps, WikiText stream
+python -m alien_ink.zdeck.gemma_c4_5k            # Gemma (Mist-sized), 5k steps, C4 stream
+python -m alien_ink.zdeck.gemma_c4_50k           # Gemma (Mist-sized), 50k steps, C4 stream
+python -m alien_ink.zdeck.gemma_wikitext_4ep     # Gemma (Mist-sized), 4 epochs, WikiText complete
+python -m alien_ink.zdeck.gpt_neox_wikitext_4ep  # GPT-NeoX, 4 epochs, WikiText complete
 ```
 
 Or background one with `./bin/pretrain_mist.sh` (edit the script to select a module).

@@ -22,6 +22,12 @@ mkdir -p output
 
 module="alien_ink.zdeck.gemma_c4_50k"
 name="gemma-c4-50k-mist"
+
+# module="alien_ink.zdeck.gemma_wikitext_4ep"
+# name="gemma-wikitext-4ep-mist"
+
+# module="alien_ink.zdeck.gpt_neox_wikitext_4ep"
+# name="gpt-neox-wikitext-4ep-mist"
 # ------------------------------------------------------------------------------
 
 stamp=$(date +%Y%m%d-%H%M%S)
