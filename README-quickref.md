@@ -39,4 +39,4 @@ MANIFEST.with_schedule(learning_rate=3e-4).variant(run_name="wt-lr3e-4").train()
 MANIFEST.with_hardware(per_device_train_batch_size=4, gradient_accumulation_steps=8).train()
 ```
 
-See `docs/pretraining-and-completion.md` for data flow, families, and completion details.
+See `docs/` for data flow, families, corpora, and completion details.
