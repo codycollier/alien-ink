@@ -28,6 +28,39 @@ per value) unless noted. Optimizer moments stay in **fp32** (4 bytes).
 Corpus size (WikiText vs C4) does **not** change GPU memory — streams stay on
 CPU/disk. Only the **packed micro-batch** on device matters.
 
+### Filling the 8 GB card
+
+Typical Mist peaks to scale (`█` ≈ 0.25 GiB; 32 columns = 8 GiB):
+
+```
+GPT-2  B=2   ~4 GiB   ████████████████................   comfortable
+Gemma  B=1   ~6 GiB   ████████████████████████........   tight
+Gemma  B=2   ~8+ GiB  ████████████████████████████████▒▒  OOM risk
+                      0    1    2    3    4    5    6    7    8 GiB
+```
+
+Where that fill comes from (midpoint stacks, same scale):
+
+```
+              ├─ static (∝ P) ─┤├── micro-batch ──┤├oh┤
+GPT-2  ~4     ███ ███ ████     ████ ████          ██  ................
+              w   g   Adam     act  logits        oh     free
+
+Gemma  ~6     █████ █████ █████████  ███ ████     ██  ........
+              w     g     Adam       act logits   oh   free
+              (w=weights, g=grads; Gemma Adam+vocab dominate)
+```
+
+Same tokens/optimizer step (`B × accum × 1024 = 32,768`); only micro-batch
+shape changes peak VRAM:
+
+```
+                 micro-batch B              accum → same 32,768 tok/step
+GPT-2            ████████████████  B=2      ×16     fits easily
+Gemma (zdeck)    ████████          B=1      ×32     fits tightly
+Gemma (avoid)    ████████████████  B=2      ×16     same tokens, often OOM
+```
+
 ---
 
 ## The memory equation
@@ -36,6 +69,18 @@ Peak training VRAM is roughly:
 
 ```
 VRAM ≈ params + grads + optimizer + activations + logits + overhead
+         └── static floor (∝ P) ──┘   └── micro-batch (∝ B·S·…) ──┘
+```
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│                     peak training VRAM                      │
+├──────────┬──────────┬────────────┬────────────┬──────┬──────┤
+│  params  │  grads   │  AdamW     │ activations│logits│  oh  │
+│  P × 2   │  P × 2   │  P × 8–12  │ ∝ B·S·H·L  │B·S·V │ ~1GB │
+│  (bf16)  │  (bf16)  │  (fp32)    │ (ckpt'd)   │      │      │
+└──────────┴──────────┴────────────┴────────────┴──────┴──────┘
+     scales with model size P          scales with micro-batch
 ```
 
 | Term | Formula (bytes) | Notes |
@@ -60,6 +105,15 @@ static_GiB ≈ P × bytes_per_param / 1024³
 | 124M (GPT-2 Mist) | **1.4 GiB** | **1.8 GiB** |
 | 125M (NeoX Mist) | **1.4 GiB** | **1.9 GiB** |
 | 290M (Gemma Mist) | **3.2 GiB** | **4.3 GiB** |
+
+```
+Static floor @ 12 B/param (before act / logits / overhead)
+
+GPT-2  124M  ████████████░░░░░░░░░░░░░░░░░░░░  1.4 GiB
+NeoX   125M  ████████████░░░░░░░░░░░░░░░░░░░░  1.4 GiB
+Gemma  290M  ████████████████████████████░░░░  3.2 GiB
+             0         1         2         3         4 GiB
+```
 
 Everything else (activations, logits, overhead) sits on top of that floor.
 
@@ -88,7 +142,15 @@ embed_params ≈ V × H          # tied
 | GPT-NeoX Mist | ~50k | 768 | ~39M | ~86M | **~125M** |
 | Gemma Mist | ~256k | 512 | ~262M (untied) | ~20–40M | **~280–300M** |
 
-On Mist, Gemma’s **vocabulary**, not depth, drives parameter memory.
+On Mist, Gemma’s **vocabulary**, not depth, drives parameter memory:
+
+```
+Where the parameters live
+
+GPT-2   embed ████░░░░░░░░░░░░░░░░  ~39M    trunk ████████████████████  ~85M
+Gemma   embed ████████████████████████████████████████  ~262M
+        trunk ███░  ~30M
+```
 
 Weights in bf16:
 
@@ -125,6 +187,15 @@ If a master fp32 weight copy is present, add another `P × 4` (~0.5 / ~1.1 GiB).
 once per optimizer step; micro-batches only accumulate gradients into the same
 grad buffers. That is why Gemma uses `batch=1`, `accum=32` instead of `batch=2`.
 
+```
+Peak VRAM vs effective batch
+
+  raise B          →  activations + logits grow  →  VRAM ↑
+  raise accum      →  same buffers, more steps   →  VRAM unchanged
+  raise B and cut
+  accum to match   →  same tokens/step           →  VRAM ↑ (Gemma B=2)
+```
+
 ### 4. Training “data” on the GPU
 
 Hub rows and the stream buffer live in **host RAM / disk**. What hits VRAM:
@@ -137,8 +208,15 @@ Hub rows and the stream buffer live in **host RAM / disk**. What hits VRAM:
 | Attention scores / context | scales with `S²` per head (implementation-dependent) | **large** at long context |
 | **Logits** | `B × S × V` | **often the largest data term** |
 
-So “data memory” means **activations + logits for the current micro-batch**,
-not the corpus.
+```
+Host                              GPU (one micro-batch)
+┌────────────────────┐            ┌──────────────────────────────┐
+│ Hub stream / disk  │  tokenize  │ input_ids  (tiny)            │
+│ WikiText / Wiki /  │ ─────────► │ activations  ∝ B·S·H·L       │
+│ C4  (any size)     │   pack     │ logits       ∝ B·S·V  ◄─── │
+└────────────────────┘            └──────────────────────────────┘
+  corpus size ≠ VRAM                only this footprint matters
+```
 
 #### Logits (LM head)
 
@@ -152,6 +230,15 @@ logits_bytes = B × S × V × elem_bytes
 | Gemma Mist | 1 | 1024 | ~256,000 | **~0.49 GiB** | **~0.98 GiB** |
 | Gemma @ batch 2 | 2 | 1024 | ~256,000 | **~0.98 GiB** | **~1.95 GiB** |
 
+```
+Logits @ fp32 (CE upcast) — why Gemma micro-batch stays at 1
+
+GPT-2  B=2  V≈50k    ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░  0.39 GiB
+Gemma  B=1  V≈256k   ████████████░░░░░░░░░░░░░░░░░░░░  0.98 GiB
+Gemma  B=2  V≈256k   ████████████████████████░░░░░░░░  1.95 GiB
+                     0         0.5       1.0       1.5       2.0 GiB
+```
+
 The zdeck comment that Gemma `batch=2` materializes **~2 GiB** logits matches
 the **fp32** column — cross-entropy often upcasts logits before the loss.
 
@@ -164,6 +251,14 @@ With `gradient_checkpointing=True` (all Mist zdecks): only checkpoints are
 kept; intermediates are recomputed on backward. Activation memory drops by
 roughly an order of magnitude (≈√`L` or “one layer at a time”), at the cost of
 extra compute (~20–30% slower is typical).
+
+```
+Activations (conceptual)
+
+checkpointing OFF   ████████████████████████████████  all L layers live
+checkpointing ON    ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░  ~one layer + ckpts
+                    ← ~10× less activation VRAM →
+```
 
 Order-of-magnitude with checkpointing on Mist:
 
@@ -194,16 +289,16 @@ card often has only ~7.2–7.5 GiB usable after the driver reserve.
 `P ≈ 124M`, `B=2`, `S=1024`, `V≈50k`, checkpointing on, bf16/fp16.
 
 ```
-                    GiB
-Params (bf16)       ████░░░░░░░░░░░░  0.23
-Grads               ████░░░░░░░░░░░░  0.23
-Adam m+v (fp32)     ████████████████  0.92
-(+ master, if any)  ████████░░░░░░░░  0.46
-Logits (fp16→fp32)  ██████░░░░░░░░░░  0.2–0.4
-Activations (ckpt)  ████████████░░░░  0.5–1.5
-Overhead            ████████░░░░░░░░  0.5–1.0
-                    ────────────────
-Peak (typical)      ~3–5 GiB  of  ~8 GiB
+Component              GiB     of 8 GiB card
+Params (bf16)          0.23    #.......
+Grads                  0.23    #.......
+Adam m+v (fp32)        0.92    ####....
+(+ master, if any)     0.46    ##......
+Logits (fp16→fp32)   0.2–0.4   ##......
+Activations (ckpt)   0.5–1.5   ######..
+Overhead             0.5–1.0   ####....
+                       ────────────────────────
+Peak (typical)       ~3–5      ##############..............  of 8
 ```
 
 Headroom is why GPT-2 can use **micro-batch 2**. Effective batch 32 comes from
@@ -214,18 +309,18 @@ Headroom is why GPT-2 can use **micro-batch 2**. Effective batch 32 comes from
 `P ≈ 290M`, `B=1`, `S=1024`, `V≈256k`, checkpointing on.
 
 ```
-                    GiB
-Params (bf16)       ████████░░░░░░░░  0.54
-Grads               ████████░░░░░░░░  0.54
-Adam m+v (fp32)     ████████████████████████  2.2
-(+ master, if any)  ████████████░░░░  1.1
-Logits @ B=1        ████████████░░░░  0.5–1.0
-Logits @ B=2        ████████████████████████  ~2.0 (fp32)
-Activations (ckpt)  ████████░░░░░░░░  0.3–1.0
-Overhead            ████████░░░░░░░░  0.5–1.0
-                    ────────────────
-Peak @ B=1          ~5–7 GiB  of  ~8 GiB
-Peak @ B=2          OOM risk (logits alone ~2 GiB on top of ~4+ GiB static)
+Component              GiB     of 8 GiB card
+Params (bf16)          0.54    ##......
+Grads                  0.54    ##......
+Adam m+v (fp32)         2.2    #########
+(+ master, if any)      1.1    ####....
+Logits @ B=1         0.5–1.0   ####....
+Logits @ B=2           ~2.0    ########   ← doubles with B
+Activations (ckpt)   0.3–1.0   ####....
+Overhead             0.5–1.0   ####....
+                       ────────────────────────
+Peak @ B=1           ~5–7      ######################......  of 8
+Peak @ B=2           OOM risk  ##############################++++  spills
 ```
 
 Same **32,768 tokens/optimizer step** as GPT-2 via `accum=32`, without doubling
@@ -258,6 +353,18 @@ the logit tensor.
 | Dataset / `max_steps` | No GPU effect | Stream on host |
 | `dataloader_num_workers` | Host RAM / CPU, not VRAM | 2 |
 
+```
+Knob → VRAM sensitivity (Mist)
+
+  B (micro-batch)     ████████████████  strong (act + logits)
+  V (vocab)           ████████████████  strong (embed + logits) — Gemma
+  S (block_size)      ████████████░░░░  strong; attention can be worse
+  P / H / L           ████████░░░░░░░░  static floor + acts
+  accum steps         ░░░░░░░░░░░░░░░░  no peak effect
+  dataset size        ░░░░░░░░░░░░░░░░  host only
+  checkpointing ON    ↓↓↓↓ activations
+```
+
 ### Effective batch without extra VRAM
 
 ```
@@ -288,6 +395,15 @@ estimate_GiB ≈ P×12/1024³ + B×S×V×4/1024³ + 1.5
 | GPT-2, B=2 | 124e6×12 + 2×1024×5e4×4 + 1.5 | ~3.3 | yes |
 | Gemma, B=1 | 290e6×12 + 1×1024×256e3×4 + 1.5 | ~5.7 | yes (tight) |
 | Gemma, B=2 | 290e6×12 + 2×1024×256e3×4 + 1.5 | ~7.6 | often OOM |
+
+```
+Recipe estimates vs 8 GiB card
+
+GPT-2 B=2   #############.................  ~3.3   ✓
+Gemma B=1   ######################........  ~5.7   ✓ tight
+Gemma B=2   ##############################  ~7.6   ✗ often OOM
+            0         2         4         6         8 GiB
+```
 
 ---
 
