@@ -1,6 +1,6 @@
 [project]
 name = "alien-ink"
-version = "0.3.5"
+version = "0.3.7"
 description = "Alien Ink"
 authors = [
     { name = "Cody Collier", email = "cmcollier@gmail.com" }

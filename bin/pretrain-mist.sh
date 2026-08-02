@@ -28,11 +28,14 @@ script=""
 # module="alien_ink.zdeck.pre_gemma_c4_50k_mist"
 # name="pre-gemma-c4-50k-mist"
 
-module="alien_ink.zdeck.pre_gemma_wikitext_4ep_mist"
-name="pre-gemma-wikitext-4ep-mist"
+# module="alien_ink.zdeck.pre_gemma_wikitext_4ep_mist"
+# name="pre-gemma-wikitext-4ep-mist"
 
 # script="alien_ink/zdeck/pre_gpt-neox_wikitext_4ep_mist.py"
 # name="pre-gpt-neox-wikitext-4ep-mist"
+
+script="alien_ink/zdeck/pre_gpt-neox_wikitext_3ep_mist.py"
+name="pre-gpt-neox-wikitext-3ep-mist"
 
 # module="alien_ink.zdeck.baseline_perf_mist"
 # name="baseline-perf-mist"

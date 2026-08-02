@@ -1,10 +1,10 @@
 #!/usr/bin/env python
-"""Pretrain Mist-sized GPT-NeoX from scratch for 0.25 epochs on WikiText-103.
+"""Pretrain Mist-sized GPT-NeoX from scratch for 3 epochs on WikiText-103.
 
-Performance-baseline formula: short fractional-epoch run on fully materialized
-WikiText (``mode="complete"``) so wall-clock and throughput are comparable
-across hardware/config tweaks. Every manifest field is spelled out below for
-reproducibility — change values in place, do not rely on module defaults.
+Sized for Mist (local RTX 3070, ~8 GB). WikiText is fully materialized
+(``mode="complete"``) so epoch length is well-defined. Every manifest field is
+spelled out below for reproducibility — change values in place, do not rely on
+module defaults.
 
 Speed notes (nanochat-inspired, tuned for Mist: 16-core / 94 GB / RTX 3070 8 GB):
   - Larger micro-batch (4) with fewer accum steps keeps tokens/step at 32,768
@@ -14,7 +14,7 @@ Speed notes (nanochat-inspired, tuned for Mist: 16-core / 94 GB / RTX 3070 8 GB)
   - ``torch.compile`` + TF32 (Ampere) + fused AdamW for kernel efficiency.
   - Host has spare CPU/RAM: more tokenize procs, dataloader workers, prefetch.
 
-  python -m alien_ink.zdeck.baseline_perf_mist
+  python alien_ink/zdeck/pre_gpt-neox_wikitext_3ep_mist.py
 """
 
 from __future__ import annotations
@@ -29,8 +29,8 @@ from alien_ink.hf.manifest import (
 )
 
 MANIFEST = Manifest(
-    run_name="baseline-perf-mist",
-    title="GPT-NeoX from scratch on WikiText-103 (0.25 epochs, baseline perf)",
+    run_name="pre-gpt-neox-wikitext-3ep-mist",
+    title="GPT-NeoX from scratch on WikiText-103 (3 epochs)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
@@ -82,16 +82,16 @@ MANIFEST = Manifest(
     wandb=WandbConfig(
         entity="logbook",
         project="ink-explore",
-        name="baseline-perf-mist",
+        name="pre-gpt-neox-wikitext-3ep-mist",
         enabled=True,
     ),
     schedule=ScheduleConfig(
         max_steps=-1,
-        num_train_epochs=0.25,
+        num_train_epochs=3.0,
         learning_rate=6e-4,
-        # ~4% of ~500 planned optimizer steps (≈0.25 epochs × ~2k steps/epoch
+        # ~4% of ~6k planned optimizer steps (≈3 epochs × ~2k steps/epoch
         # at micro-batch 4).
-        warmup_steps=20,
+        warmup_steps=240,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
