@@ -26,7 +26,7 @@ from typing import Iterator
 
 from alien_ink.com.device import collect_accelerator_info, device_info
 from alien_ink.com.log import banner, blank, detail, get_logger, header, step
-from alien_ink.hf.gen import generate_completion
+from alien_ink.hf.gen import CompletionResult, generate_chat_completions
 from alien_ink.hf.manifest import Manifest
 from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 
@@ -165,6 +165,7 @@ def main(argv: list[str] | None = None) -> None:
 
     blank(logger=log)
     step("Ready. Each turn is a fresh completion (no history).", logger=log)
+    detail("Shows 4 candidates: greedy, then T=0.5 / 0.8 / 1.2.", logger=log)
     detail("Ctrl-C to exit.", logger=log)
     detail("Type a sentence starter, e.g. The capital of Texas is", logger=log)
     blank(logger=log)
@@ -183,7 +184,7 @@ def main(argv: list[str] | None = None) -> None:
 
         try:
             with wait_anim():
-                completion = generate_completion(
+                results = generate_chat_completions(
                     model,
                     tokenizer,
                     prompt,
@@ -194,8 +195,13 @@ def main(argv: list[str] | None = None) -> None:
             log.error("generation failed: %s", exc)
             continue
 
-        if completion:
-            print(f"model> {completion}")
+        _print_completions(results)
+
+
+def _print_completions(results: list[CompletionResult]) -> None:
+    for index, result in enumerate(results, start=1):
+        text = result.text if result.text else "∅"
+        print(f"[{index}] {text}  ({result.stats_label()})")
 
 
 if __name__ == "__main__":

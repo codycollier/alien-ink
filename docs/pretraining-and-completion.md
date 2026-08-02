@@ -259,11 +259,16 @@ Do **not** use chat roles (`System:`, `User:`, `Assistant:`) — the model was n
 
 The script loads the manifest, resolves `output/<run_name>/`, and drives generation from `manifest.model.family`.
 
+Each turn prints **four** candidates on separate lines: greedy (deterministic) first, then sampled at temperatures `0.5`, `0.8`, and `1.2`. A counter and decoding stats sit beside each completion.
+
 Example session:
 
 ```
 input› The capital of Texas is
-model> Austin .
+[1] Austin .  (greedy T=0, 2 tok)
+[2] Austin, Texas.  (T=0.5 top_p=0.95, 4 tok)
+[3] a city known for live music.  (T=0.8 top_p=0.95, 7 tok)
+[4] located in the southern United States.  (T=1.2 top_p=0.95, 8 tok)
 ```
 
 Type **Ctrl-C** to exit.

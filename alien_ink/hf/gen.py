@@ -46,6 +46,40 @@ class GenConfig:
     add_special_tokens: bool = True
 
 
+@dataclass(frozen=True)
+class CompletionResult:
+    """One completion plus the decoding settings that produced it."""
+
+    text: str
+    n_tokens: int
+    do_sample: bool
+    temperature: float
+    top_k: int
+    top_p: float
+
+    def stats_label(self) -> str:
+        """Short human-readable decoding summary for REPL display."""
+        if not self.do_sample:
+            return f"greedy T={self.temperature:g}, {self.n_tokens} tok"
+        return (
+            f"T={self.temperature:g} top_p={self.top_p:g}, "
+            f"{self.n_tokens} tok"
+        )
+
+
+# Interactive chat: greedy first, then increasingly sampled.
+_CHAT_SAMPLE_TEMPERATURES = (0.5, 0.8, 1.2)
+
+
+def chat_gen_variants(base: GenConfig) -> tuple[GenConfig, ...]:
+    """Up to four configs: deterministic greedy, then rising temperatures."""
+    # T=0 is conventional for greedy even though temperature is unused.
+    variants = [replace(base, do_sample=False, temperature=0.0)]
+    for temperature in _CHAT_SAMPLE_TEMPERATURES:
+        variants.append(replace(base, do_sample=True, temperature=temperature))
+    return tuple(variants)
+
+
 def _default_gen_config() -> GenConfig:
     return GenConfig(add_special_tokens=True)
 
@@ -112,14 +146,14 @@ def pick_prompts(
 
 
 @torch.inference_mode()
-def generate_completion(
+def generate_completion_result(
     model: PreTrainedModel,
     tokenizer: PreTrainedTokenizerBase,
     prompt: str,
     device: str,
     gen: GenConfig,
-) -> str:
-    """Generate a single completion for ``prompt`` and return only the new text."""
+) -> CompletionResult:
+    """Generate a single completion and return text plus decoding stats."""
     target = torch_device(device)
     inputs = tokenizer(
         prompt,
@@ -145,8 +179,40 @@ def generate_completion(
         gen_kwargs["tokenizer"] = tokenizer
     output_ids = model.generate(**inputs, **gen_kwargs)
     new_ids = output_ids[0, input_len:]
-    completion = tokenizer.decode(new_ids, skip_special_tokens=True)
-    return completion.strip()
+    text = tokenizer.decode(new_ids, skip_special_tokens=True).strip()
+    return CompletionResult(
+        text=text,
+        n_tokens=int(new_ids.shape[0]),
+        do_sample=gen.do_sample,
+        temperature=gen.temperature,
+        top_k=gen.top_k,
+        top_p=gen.top_p,
+    )
+
+
+def generate_completion(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
+    prompt: str,
+    device: str,
+    gen: GenConfig,
+) -> str:
+    """Generate a single completion for ``prompt`` and return only the new text."""
+    return generate_completion_result(model, tokenizer, prompt, device, gen).text
+
+
+def generate_chat_completions(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
+    prompt: str,
+    device: str,
+    gen: GenConfig,
+) -> list[CompletionResult]:
+    """Generate greedy then sampled completions for interactive chat."""
+    return [
+        generate_completion_result(model, tokenizer, prompt, device, variant)
+        for variant in chat_gen_variants(gen)
+    ]
 
 
 def collect_spot_check_prompts(
