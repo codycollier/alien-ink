@@ -41,7 +41,7 @@ def test_step_detail_banner_blank_style(_reset_logger):
     assert ":: Title" in text
     assert ">> hello" in text
     assert "   world" in text
-    assert "----------------------------------------------------------------------" in text
+    assert "-" * 79 in text
     # blank line between narrative blocks
     assert "\n\n" in text or text.endswith("\n")
 

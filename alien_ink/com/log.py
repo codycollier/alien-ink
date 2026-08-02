@@ -124,9 +124,10 @@ def header(*, logger: logging.Logger | None = None) -> None:
 def banner(title: str, *, logger: logging.Logger | None = None) -> None:
     """Section header: rule / ``:: title`` / rule."""
     log = logger or get_logger()
-    log.info("----------------------------------------------------------------------")
+    rule = "-" * 79
+    log.info(rule)
     log.info(f":: {title}")
-    log.info("----------------------------------------------------------------------")
+    log.info(rule)
 
 
 def step(msg: str, *, logger: logging.Logger | None = None) -> None:

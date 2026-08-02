@@ -17,6 +17,7 @@ import importlib
 import importlib.util
 import os
 import sys
+import textwrap
 import threading
 import time
 from contextlib import contextmanager
@@ -33,6 +34,8 @@ from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
 
 log = get_logger("bin.chat")
 
+_LINE_WIDTH = 79
+_RULE = "-" * _LINE_WIDTH
 _WAIT_WIDTH = 14
 _WAIT_INTERVAL = 0.07
 _BLUE = "\033[34m"
@@ -171,7 +174,7 @@ def main(argv: list[str] | None = None) -> None:
     blank(logger=log)
 
     while True:
-        print("--------------------------------------------------------------")
+        print(_RULE)
         try:
             prompt = input("input› ").strip()
         except (EOFError, KeyboardInterrupt):
@@ -201,7 +204,18 @@ def main(argv: list[str] | None = None) -> None:
 def _print_completions(results: list[CompletionResult]) -> None:
     for index, result in enumerate(results, start=1):
         text = result.text if result.text else "∅"
-        print(f"[{index}] {text}  ({result.stats_label()})")
+        prefix = f"[{index}] "
+        body = f"{text}  ({result.stats_label()})"
+        print(
+            textwrap.fill(
+                body,
+                width=_LINE_WIDTH,
+                initial_indent=prefix,
+                subsequent_indent=" " * len(prefix),
+                break_long_words=True,
+                break_on_hyphens=False,
+            )
+        )
 
 
 if __name__ == "__main__":
