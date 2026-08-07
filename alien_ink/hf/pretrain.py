@@ -126,6 +126,7 @@ def prepare_lm_datasets(
         tokenizer,
         block_size=data.block_size,
         text_column=train_text_column,
+        respect_document_boundaries=data.respect_document_boundaries,
         num_proc=data.tokenizer_num_proc,
     )
     eval_dataset = tokenize_and_chunk(
@@ -133,6 +134,7 @@ def prepare_lm_datasets(
         tokenizer,
         block_size=data.block_size,
         text_column=eval_text_column,
+        respect_document_boundaries=data.respect_document_boundaries,
         num_proc=data.tokenizer_num_proc,
     )
     if verbose:

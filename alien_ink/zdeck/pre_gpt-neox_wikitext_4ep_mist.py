@@ -42,6 +42,7 @@ MANIFEST = Manifest(
         max_train_samples=None,
         stream_shuffle_buffer=10_000,
         block_size=1024,
+        respect_document_boundaries=False,
         tokenizer_num_proc=8,
         seed=101,
     ),

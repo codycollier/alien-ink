@@ -59,6 +59,7 @@ Controls loading, eval hold-out, and token packing:
 | `max_train_samples` | `None` for stream | Required for `subset` mode |
 | `stream_shuffle_buffer` | `10000` | Shuffle buffer when streaming |
 | `block_size` | `1024` | Tokens per training example; must be ≤ `model.n_positions` |
+| `respect_document_boundaries` | `True` | Chunk each Hub row independently; set `False` to pack across rows (needed for short-row corpora like WikiText) |
 | `tokenizer_num_proc` | `4` | Parallel workers for map-style preprocessing |
 | `seed` | `101` | Shuffle / hold-out reproducibility |
 
@@ -130,20 +131,34 @@ Preprocessing is **identical across model families** — only the tokenizer diff
 
 1. **Load** rows via `load_train_eval(data)`.
 2. **Tokenize** the `text_column` with the family’s tokenizer (`tokenizer(examples["text"])`, batched).
-3. **Concatenate** all token streams and **slice** into contiguous blocks of `block_size` tokens.
+3. **Chunk** token streams into contiguous blocks of `block_size` tokens.
 4. **Labels** are a copy of `input_ids` (standard causal LM: predict token *t* from tokens *0…t−1*).
 
-Important implications:
+By default (`respect_document_boundaries=True`):
 
-- Document boundaries are **not** respected when packing — a 1024-token block may span two Wikipedia articles or C4 snippets.
-- No BOS/EOS tokens are inserted between documents during packing (except whatever the tokenizer adds per row — see family notes below).
-- Rows shorter than `block_size` tokens are concatenated with neighbors; remainder tokens shorter than one block are dropped.
+- Each Hub row is chunked **independently** — a training block never spans two documents.
+- Long documents become multiple consecutive blocks; a per-document remainder shorter than `block_size` is dropped.
+- Rows shorter than `block_size` produce **no** blocks (they are skipped). Prefer document-sized rows (articles, pages) for this mode.
+
+```
+  doc A (3000 tok) ──► [1024] [1024]   (remainder dropped)
+  doc B (500 tok)  ──► (skipped)
+  doc C (2048 tok) ──► [1024] [1024]
+```
+
+With `respect_document_boundaries=False` (classic packing — used by WikiText factories/zdecks):
+
+- Token streams are **concatenated** across rows in each map batch, then sliced.
+- Document boundaries are **not** respected — a block may span two articles or lines.
+- Short rows pack with neighbors; a leftover shorter than one block is dropped.
 
 ```
   doc A tokens ──┐
   doc B tokens ──┼──► [1024] [1024] [1024] …
   doc C tokens ──┘
 ```
+
+No BOS/EOS tokens are inserted between documents during packing (except whatever the tokenizer adds per row — see family notes below).
 
 ---
 
@@ -166,7 +181,7 @@ Architecture and tokenizer are set in `CausalLmArchConfig` (`alien_ink.hf.model`
 ### Gemma (`family="gemma"`)
 
 - SentencePiece tokenizer, vocab ~256k. Defines `<bos>`, `<eos>`, and pad tokens.
-- During training, each Hub row is tokenized with the tokenizer’s default settings (BOS may appear at the start of a row, but packed blocks are predominantly mid-stream).
+- During training, each Hub row is tokenized with the tokenizer’s default settings (BOS may appear at the start of a row; with document-bounded chunking, block starts often align with row starts).
 - **VRAM note:** the large vocabulary makes logits memory-heavy; Gemma zdecks use batch size 1 × grad accum 32 on an 8 GB GPU.
 - Typical zdeck pairings: C4 English.
 

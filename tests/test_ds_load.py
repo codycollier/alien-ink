@@ -48,12 +48,14 @@ def test_subset_factories_default_sizes():
     assert wt.max_eval_samples == DEFAULT_SUBSET_EVAL_SAMPLES
     assert wt.eval_source is not None
     assert wt.eval_source.split == "validation"
+    assert wt.respect_document_boundaries is False
 
     c4 = c4_english_subset()
     assert c4.mode == "subset"
     assert c4.max_train_samples == DEFAULT_SUBSET_TRAIN_SAMPLES
     assert c4.max_eval_samples == DEFAULT_SUBSET_EVAL_SAMPLES
     assert c4.eval_source is not None
+    assert c4.respect_document_boundaries is True
 
 
 def test_complete_factories():
@@ -68,6 +70,7 @@ def test_stream_factory_default():
     cfg = wikipedia_english()
     assert cfg.mode == "stream"
     assert cfg.max_train_samples is None
+    assert cfg.respect_document_boundaries is True
 
 
 def test_load_train_eval_dispatches_on_mode():

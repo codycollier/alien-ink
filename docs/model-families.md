@@ -182,7 +182,8 @@ the large vocabulary).
 - SentencePiece, vocab **~256k**
 - Defines `<bos>`, `<eos>`, and pad
 - During training, each Hub row is tokenized with the tokenizer’s defaults
-  (BOS may appear at row starts; packed blocks are mostly mid-stream)
+  (BOS may appear at row starts; with document-bounded chunking, early tokens
+  of a row often begin a block)
 
 ### Hardware knobs (zdeck)
 

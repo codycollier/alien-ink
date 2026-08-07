@@ -82,11 +82,16 @@ Default subset mode (experiments / CI): **20,000** train + **1,000** eval rows
 
 1. Load rows (`stream`, `subset`, or `complete`).
 2. Encode the `text` column with the family tokenizer.
-3. Concatenate and slice into fixed `block_size` blocks (default **1024**).
+3. Slice into fixed `block_size` blocks (default **1024**).
 4. Labels copy `input_ids` (next-token prediction).
 
-Document boundaries are **not** preserved. Short rows pack with neighbors; a
-leftover shorter than one block is dropped.
+By default (`respect_document_boundaries=True`), each Hub row is chunked
+independently — blocks never span two documents. Short rows (< `block_size`)
+produce no blocks; long rows become multiple blocks with a dropped remainder.
+
+Set `respect_document_boundaries=False` to concatenate across rows before
+slicing (classic packing). WikiText factories and zdecks do this because Hub
+rows are line-oriented and usually shorter than one block.
 
 ---
 
@@ -109,7 +114,8 @@ Curated English Wikipedia (Good / Featured only): clean encyclopedic prose,
 original casing and punctuation. Hub split is **line-oriented** — many blank
 section separators and short paragraphs; empty strings are common. Hyphens
 appear as `@-@` (original preprocessing). Average non-empty row is short; after
-packing the model mostly sees contiguous article fragments spanning Hub rows.
+packing the model mostly sees contiguous article fragments spanning Hub rows
+(`respect_document_boundaries=False`).
 
 **Use when:** Fast, high-quality English for GPT-2 / NeoX-sized runs.
 `mode="complete"` is practical; a ~4k–5k Mist schedule covers a full epoch.
@@ -175,5 +181,7 @@ debugging — use `c4_english_subset()` or WikiText instead.
 1. Confirm the Hub card: config name, splits, and text column name.
 2. Add a `HubTextSource` (and optionally a factory next to the existing three).
 3. Prefer a dedicated validation split when one exists; otherwise hold-out eval.
-4. Keep `block_size ≤ model.n_positions`.
+4. Keep `block_size ≤ model.n_positions`. Prefer document-sized rows so
+   `respect_document_boundaries=True` (default) yields useful blocks; use
+   `False` only for short-row corpora like WikiText.
 5. For huge corpora, default `mode="stream"` in zdeck manifests.

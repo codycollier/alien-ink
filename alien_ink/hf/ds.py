@@ -50,6 +50,12 @@ class PretrainDataConfig:
       - ``stream``   — train is streamed; ``max_train_samples`` must be ``None``
       - ``subset``   — materialize ``max_train_samples`` train rows
       - ``complete`` — download/materialize the full train split
+
+    ``respect_document_boundaries``:
+      - ``True``  (default) — chunk each Hub row independently; blocks never
+        span two documents. Short-row corpora (e.g. WikiText) should set
+        ``False`` or most rows produce zero blocks.
+      - ``False`` — concatenate tokens across rows before slicing (classic packing)
     """
 
     source: HubTextSource
@@ -59,6 +65,7 @@ class PretrainDataConfig:
     max_train_samples: int | None = None
     stream_shuffle_buffer: int = 10_000
     block_size: int = 1024
+    respect_document_boundaries: bool = True
     tokenizer_num_proc: int = 4
     seed: int = 101
 
@@ -107,6 +114,7 @@ def _data_config(
     mode: LoadMode = "stream",
     max_eval_samples: int = 1_000,
     max_train_samples: int | None = None,
+    respect_document_boundaries: bool = True,
 ) -> PretrainDataConfig:
     return PretrainDataConfig(
         source=source,
@@ -114,6 +122,7 @@ def _data_config(
         mode=mode,
         max_eval_samples=max_eval_samples,
         max_train_samples=max_train_samples,
+        respect_document_boundaries=respect_document_boundaries,
     )
 
 
@@ -170,7 +179,11 @@ def wikitext_103(
     max_eval_samples: int = 1_000,
     max_train_samples: int | None = None,
 ) -> PretrainDataConfig:
-    """WikiText-103 (train + validation splits)."""
+    """WikiText-103 (train + validation splits).
+
+    Uses cross-document packing because Hub rows are line-oriented and usually
+    shorter than ``block_size``.
+    """
     if mode == "subset" and max_train_samples is None:
         max_train_samples = DEFAULT_SUBSET_TRAIN_SAMPLES
     return _data_config(
@@ -181,6 +194,7 @@ def wikitext_103(
         mode=mode,
         max_eval_samples=max_eval_samples,
         max_train_samples=max_train_samples,
+        respect_document_boundaries=False,
     )
 
 

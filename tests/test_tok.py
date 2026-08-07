@@ -25,7 +25,8 @@ def test_column_names_from_map_dataset():
     assert column_names(ds) == ["text"]
 
 
-def test_chunk_into_blocks_packs_and_labels():
+def test_chunk_into_blocks_respects_document_boundaries():
+    # Two 10-token docs → one 8-token block each; no cross-doc concat.
     tokenized = Dataset.from_list(
         [
             {"input_ids": list(range(10)), "attention_mask": [1] * 10},
@@ -34,8 +35,44 @@ def test_chunk_into_blocks_packs_and_labels():
     )
     blocks = chunk_into_blocks(tokenized, block_size=8, num_proc=None)
     assert len(blocks) == 2
+    assert blocks[0]["input_ids"] == list(range(8))
+    assert blocks[1]["input_ids"] == list(range(10, 18))
     assert blocks[0]["labels"] == blocks[0]["input_ids"]
     assert len(blocks[0]["input_ids"]) == 8
+
+
+def test_chunk_into_blocks_drops_short_documents():
+    tokenized = Dataset.from_list(
+        [
+            {"input_ids": list(range(5)), "attention_mask": [1] * 5},
+            {"input_ids": list(range(20, 40)), "attention_mask": [1] * 20},
+        ]
+    )
+    blocks = chunk_into_blocks(tokenized, block_size=8, num_proc=None)
+    # Short doc dropped; long doc yields two full blocks.
+    assert len(blocks) == 2
+    assert blocks[0]["input_ids"] == list(range(20, 28))
+    assert blocks[1]["input_ids"] == list(range(28, 36))
+
+
+def test_chunk_into_blocks_packs_across_documents_when_disabled():
+    tokenized = Dataset.from_list(
+        [
+            {"input_ids": list(range(10)), "attention_mask": [1] * 10},
+            {"input_ids": list(range(10, 20)), "attention_mask": [1] * 10},
+        ]
+    )
+    blocks = chunk_into_blocks(
+        tokenized,
+        block_size=8,
+        respect_document_boundaries=False,
+        num_proc=None,
+    )
+    # 20 tokens packed → two full blocks; remainder of 4 dropped.
+    assert len(blocks) == 2
+    assert blocks[0]["input_ids"] == list(range(8))
+    assert blocks[1]["input_ids"] == list(range(8, 16))
+    assert blocks[0]["labels"] == blocks[0]["input_ids"]
 
 
 def test_tokenize_and_chunk_end_to_end():
