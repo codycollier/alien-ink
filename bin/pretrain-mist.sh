@@ -34,11 +34,14 @@ script=""
 # script="alien_ink/zdeck/pre_gpt-neox_wikitext_4ep_mist.py"
 # name="pre-gpt-neox-wikitext-4ep-mist"
 
-script="alien_ink/zdeck/pre_gpt-neox_wikitext_3ep_mist.py"
-name="pre-gpt-neox-wikitext-3ep-mist"
+# script="alien_ink/zdeck/pre_gpt-neox_wikitext_3ep_mist.py"
+# name="pre-gpt-neox-wikitext-3ep-mist"
 
 # module="alien_ink.zdeck.baseline_perf_mist"
 # name="baseline-perf-mist"
+
+module="alien_ink.zdeck.baseline_perf_gemma_mist"
+name="baseline-perf-gemma-mist"
 
 # ------------------------------------------------------------------------------
 
