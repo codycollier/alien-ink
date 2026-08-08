@@ -24,13 +24,14 @@ for Mist (local RTX 3070, ~8 GB VRAM).
 | **Mist heads** | 12 | 12 | 8 (`head_dim=64`) |
 | **Context (`n_positions`)** | 1024 | 1024 | 1024 |
 | **MLP width** | ~4× embd (HF default) | `4 * n_embd` | 2048 |
-| **Params (Mist, approx.)** | **~124M** | **~125M** | **~280–300M** |
-| **Zdeck programs** | WikiText, Wikipedia | none yet | C4 5k / 50k |
+| **Params (Mist, approx.)** | **~124M** | **~163M** | **~165M** |
+| **Zdeck programs** | WikiText, Wikipedia | WikiText baseline / 3 ep / 4 ep | WikiText baseline / 4 ep; C4 5k / 50k |
 
-Parameter counts depend on exact vocab after `load_tokenizer` (pad token may
-extend the table). GPT-2 Mist matches the classic “GPT-2 small” scale; Mist
-Gemma is **not** full Gemma-2B — it is a small Gemma *architecture* that reuses
-the Gemma-2B tokenizer.
+Parameter counts depend on the exact tokenizer length after `load_tokenizer`.
+They include the LM head: GPT-2 and Gemma tie it to the input embedding, while
+the current GPT-NeoX config leaves it untied. GPT-2 Mist matches the classic
+“GPT-2 small” scale; Mist Gemma is **not** full Gemma-2B — it is a small Gemma
+*architecture* that reuses the Gemma-2B tokenizer.
 
 ---
 
@@ -118,8 +119,9 @@ GPT-2×C4 zdeck yet.
 
 ### Role in Alien Ink
 
-Supported end-to-end (build, train, load, generate) but **no zdeck program**
-yet. Same Mist-oriented dims as GPT-2 for a fair architecture comparison.
+Supported end-to-end (build, train, load, generate), with WikiText baseline,
+3-epoch, and 4-epoch zdeck programs. Same Mist-oriented dims as GPT-2 for a
+fair architecture comparison.
 
 ### Mist architecture
 
@@ -131,7 +133,9 @@ yet. Same Mist-oriented dims as GPT-2 for a fair architecture comparison.
 | `n_head` | 12 |
 | `intermediate_size` | `4 * n_embd` (3072) unless overridden |
 
-Approx. **~125M** parameters with the NeoX tokenizer vocab.
+Approx. **~163M** parameters with the NeoX tokenizer vocab. GPT-NeoX does not
+tie its LM head by default, so its ~39M-token embedding matrix is present once
+for input and once for output.
 
 Mapped HF fields: `max_position_embeddings`, `hidden_size`,
 `num_hidden_layers`, `num_attention_heads`, `intermediate_size`.
@@ -146,10 +150,8 @@ Mapped HF fields: `max_position_embeddings`, `hidden_size`,
 
 - **Pros:** Rotary / NeoX-style stack closer to modern pretraining recipes;
   easy drop-in swap from GPT-2 via `family` + tokenizer.
-- **Cons:** Untested in this repo’s zdeck archive; validate VRAM and loss curves
-  before long runs.
-- **How to add a zdeck:** copy `gpt-2_wikitext_5k`, set `family="gpt-neox"`,
-  `tokenizer_name="EleutherAI/gpt-neox-20b"`, keep Mist dims unless retuning.
+- **Cons:** Its untied output head raises static parameter/optimizer memory;
+  validate VRAM and loss curves before long runs.
 
 ---
 
@@ -171,7 +173,7 @@ the large vocabulary).
 | `n_head` | 8 | 8 |
 | `head_dim` | 64 | 256 |
 | `intermediate_size` | 2048 | 16384 |
-| Params | **~280–300M** | ~2B |
+| Params | **~165M** | ~2B |
 
 `num_key_value_heads` is set equal to `n_head` in code so SDPA does not break
 (GemmaConfig’s default KV-head count would otherwise mismatch).
@@ -221,12 +223,13 @@ WikiText / Wikipedia are supported by the stack; C4 is the archived pairing.
 - **Pros:** Modern Gemma block (RoPE, gated MLP); large SentencePiece vocab
   handles multilingual / rare spellings better than GPT-2 BPE; good match for
   diverse web text.
-- **Cons:** Embedding + LM head dominate parameter count at Mist width; VRAM
-  sensitive to vocab; needs Hub auth for tokenizer; Mist config is **not**
-  comparable to published Gemma-2B quality.
-- **Memory:** Embedding tables (~256k × 512 × 2 for untied embed/lm_head) are
-  large relative to the tiny trunk — expect ~300M params even with only 8
-  layers.
+- **Cons:** The tied embedding/LM-head table still dominates parameter count and
+  the 256k-way logits dominate micro-batch memory and output compute; needs Hub
+  auth for tokenizer; Mist config is **not** comparable to published Gemma-2B
+  quality.
+- **Memory:** The tied embedding/LM-head table is ~131M parameters, versus
+  ~34M in the transformer trunk. Tying saves static memory, but does not shrink
+  the `[batch, sequence, vocabulary]` logit tensor.
 
 ---
 
@@ -238,8 +241,8 @@ Gemma with checkpointing):
 | Family | Params | Embedding pressure | Typical train batch |
 |---|---:|---|---:|
 | GPT-2 | ~124M | Low (~50k vocab) | 4 × accum 8 |
-| GPT-NeoX | ~125M | Low (~50k vocab) | 4 × accum 8 |
-| Gemma Mist | ~290M | High (~256k vocab) | 1 × accum 32 |
+| GPT-NeoX | ~163M | Low (~50k vocab) | 4 × accum 8 |
+| Gemma Mist | ~165M | High (~256k vocab) | 1 × accum 32 |
 
 For any family, increasing `n_positions` or batch size costs activation memory
 quadratically / linearly; increasing vocab costs logit and embedding memory

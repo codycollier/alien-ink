@@ -87,8 +87,8 @@ MANIFEST = Manifest(
         max_steps=-1,
         num_train_epochs=0.25,
         learning_rate=6e-4,
-        # ~4% of ~1k planned optimizer steps (≈0.25 epochs × ~4k steps/epoch
-        # at micro-batch 1).
+        # Approximate warmup; packed block count (and therefore optimizer steps)
+        # depends on the tokenizer. Effective batch is 32 blocks/update.
         warmup_steps=40,
         weight_decay=0.1,
         max_grad_norm=1.0,

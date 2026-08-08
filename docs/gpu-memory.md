@@ -13,9 +13,9 @@ per value) unless noted. Optimizer moments stay in **fp32** (4 bytes).
 
 | Bucket | Scales with | Mist GPT-2 (order) | Mist Gemma (order) |
 |---|---|---:|---:|
-| Parameters (weights) | `P` | ~0.2 GiB | ~0.5 GiB |
-| Gradients | `P` | ~0.2 GiB | ~0.5 GiB |
-| AdamW state (+ master) | `P` | ~1.0–1.4 GiB | ~2.2–3.2 GiB |
+| Parameters (weights) | `P` | ~0.2 GiB | ~0.3 GiB |
+| Gradients | `P` | ~0.2 GiB | ~0.3 GiB |
+| AdamW state (+ master) | `P` | ~1.0–1.4 GiB | ~1.2–1.8 GiB |
 | Logits (LM head output) | `B × S × V` | ~0.2–0.4 GiB | ~0.5–1.0 GiB |
 | Activations (w/ checkpointing) | `B × S × H × L` | ~0.5–1.5 GiB | ~0.3–1.0 GiB |
 | CUDA / allocator / temps | fixed-ish | ~0.5–1.0 GiB | ~0.5–1.0 GiB |
@@ -103,15 +103,15 @@ static_GiB ≈ P × bytes_per_param / 1024³
 | Params `P` | @ 12 B/param | @ 16 B/param |
 |---:|---:|---:|
 | 124M (GPT-2 Mist) | **1.4 GiB** | **1.8 GiB** |
-| 125M (NeoX Mist) | **1.4 GiB** | **1.9 GiB** |
-| 290M (Gemma Mist) | **3.2 GiB** | **4.3 GiB** |
+| 163M (NeoX Mist) | **1.8 GiB** | **2.4 GiB** |
+| 165M (Gemma Mist) | **1.8 GiB** | **2.5 GiB** |
 
 ```
 Static floor @ 12 B/param (before act / logits / overhead)
 
 GPT-2  124M  ████████████░░░░░░░░░░░░░░░░░░░░  1.4 GiB
-NeoX   125M  ████████████░░░░░░░░░░░░░░░░░░░░  1.4 GiB
-Gemma  290M  ████████████████████████████░░░░  3.2 GiB
+NeoX   163M  ██████████████████░░░░░░░░░░░░░  1.8 GiB
+Gemma  165M  ██████████████████░░░░░░░░░░░░░  1.8 GiB
              0         1         2         3         4 GiB
 ```
 
@@ -133,14 +133,14 @@ The network itself. Dominated by:
 
 ```
 embed_params ≈ V × H          # tied
-             ≈ 2 × V × H      # untied (Mist Gemma treated this way)
+             ≈ 2 × V × H      # untied (Mist GPT-NeoX)
 ```
 
 | Family | `V` | `H` | Embed (approx.) | Trunk | Total `P` |
 |---|---:|---:|---:|---:|---:|
 | GPT-2 Mist | ~50k | 768 | ~39M (tied) | ~85M | **~124M** |
-| GPT-NeoX Mist | ~50k | 768 | ~39M | ~86M | **~125M** |
-| Gemma Mist | ~256k | 512 | ~262M (untied) | ~20–40M | **~280–300M** |
+| GPT-NeoX Mist | ~50k | 768 | ~77M (untied input + head) | ~85M | **~163M** |
+| Gemma Mist | ~256k | 512 | ~131M (tied input / head) | ~34M | **~165M** |
 
 On Mist, Gemma’s **vocabulary**, not depth, drives parameter memory:
 
@@ -148,8 +148,8 @@ On Mist, Gemma’s **vocabulary**, not depth, drives parameter memory:
 Where the parameters live
 
 GPT-2   embed ████░░░░░░░░░░░░░░░░  ~39M    trunk ████████████████████  ~85M
-Gemma   embed ████████████████████████████████████████  ~262M
-        trunk ███░  ~30M
+Gemma   embed ████████████████████████████████████████  ~131M (tied)
+        trunk ██████████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░   ~34M
 ```
 
 Weights in bf16:
@@ -161,12 +161,12 @@ weight_GiB = P × 2 / 1024³
 | Family | Weight memory |
 |---|---:|
 | GPT-2 | ~0.23 GiB |
-| Gemma Mist | ~0.54 GiB |
+| Gemma Mist | ~0.31 GiB |
 
 ### 2. Gradients
 
 Full fine-tune (Alien Ink default): one gradient tensor per parameter → **same
-size as weights** (~0.23 GiB GPT-2, ~0.54 GiB Gemma).
+size as weights** (~0.23 GiB GPT-2, ~0.31 GiB Gemma).
 
 ### 3. Optimizer state (AdamW)
 
@@ -179,9 +179,9 @@ adam_GiB = P × 8 / 1024³
 | Family | Adam `m`+`v` |
 |---|---:|
 | GPT-2 | ~0.92 GiB |
-| Gemma Mist | ~2.2 GiB |
+| Gemma Mist | ~1.2 GiB |
 
-If a master fp32 weight copy is present, add another `P × 4` (~0.5 / ~1.1 GiB).
+If a master fp32 weight copy is present, add another `P × 4` (~0.5 / ~0.6 GiB).
 
 **Gradient accumulation does not multiply optimizer memory.** Moments update
 once per optimizer step; micro-batches only accumulate gradients into the same
@@ -307,14 +307,16 @@ OOMs, turn checkpointing back on or drop to `B=2`.
 
 ### Gemma Mist (`gemma_c4_*`, `gemma_wikitext_4ep`)
 
-`P ≈ 290M`, `B=1`, `S=1024`, `V≈256k`, checkpointing on.
+`P ≈ 165M`, `B=1`, `S=1024`, `V≈256k`, checkpointing on. The tied embedding
+and LM head reduce static state; the full 256k-way logits are still materialized
+for every token and remain the micro-batch constraint.
 
 ```
 Component              GiB     of 8 GiB card
-Params (bf16)          0.54    ##......
-Grads                  0.54    ##......
-Adam m+v (fp32)         2.2    #########
-(+ master, if any)      1.1    ####....
+Params (bf16)          0.31    #.......
+Grads                  0.31    #.......
+Adam m+v (fp32)         1.2    #####...
+(+ master, if any)      0.6    ##......
 Logits @ B=1         0.5–1.0   ####....
 Logits @ B=2           ~2.0    ########   ← doubles with B
 Activations (ckpt)   0.3–1.0   ####....
@@ -332,7 +334,7 @@ the logit tensor.
 | | GPT-2 Mist | Gemma Mist |
 |---|---:|---:|
 | Dominant cost | Adam + activations | Adam + **vocab / logits** |
-| Static (12–16 B/`P`) | ~1.4–1.8 GiB | ~3.2–4.3 GiB |
+| Static (12–16 B/`P`) | ~1.4–1.8 GiB | ~1.8–2.5 GiB |
 | Logits @ zdeck `B` | ~0.4–0.8 GiB | ~0.5–1.0 GiB |
 | Zdeck `B` × accum | 4 × 8 | 1 × 32 |
 | Tokens / step | 32,768 | 32,768 |
@@ -395,15 +397,15 @@ estimate_GiB ≈ P×12/1024³ + B×S×V×4/1024³ + 1.5
 | Family | Plug-in | Estimate | 8 GB? |
 |---|---|---:|---|
 | GPT-2, B=4 | 124e6×12 + 4×1024×5e4×4 + 2.5 | ~5.0 | yes (no ckpt) |
-| Gemma, B=1 | 290e6×12 + 1×1024×256e3×4 + 1.5 | ~5.7 | yes (tight) |
-| Gemma, B=2 | 290e6×12 + 2×1024×256e3×4 + 1.5 | ~7.6 | often OOM |
+| Gemma, B=1 | 165e6×12 + 1×1024×256e3×4 + 1.5 | ~3.3 | yes (tight in practice) |
+| Gemma, B=2 | 165e6×12 + 2×1024×256e3×4 + 1.5 | ~4.3 | may OOM; measure peak allocation |
 
 ```
 Recipe estimates vs 8 GiB card
 
 GPT-2 B=4   ####################..........  ~5.0   ✓ (no ckpt)
-Gemma B=1   ######################........  ~5.7   ✓ tight
-Gemma B=2   ##############################  ~7.6   ✗ often OOM
+Gemma B=1   #############...................  ~3.3   ✓ tight in practice
+Gemma B=2   #################...............  ~4.3   measure; often OOM on Mist
             0         2         4         6         8 GiB
 ```
 
