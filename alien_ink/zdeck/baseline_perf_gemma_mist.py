@@ -74,7 +74,9 @@ MANIFEST = Manifest(
         prefer_fp16=True,
         gradient_checkpointing=True,
         tf32=True,
-        torch_compile=True,
+        # Off: torch.compile + Liger fused CE hits aten.addmm.dtype / tuned_addmm
+        # (pytorch#163880; fix still open in #190936). Keep Liger for 256k vocab.
+        torch_compile=False,
         use_liger_kernel=True,
         optim="adamw_torch_fused",
     ),
