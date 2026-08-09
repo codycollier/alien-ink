@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 #
-# Create a local venv and install alien-ink with Hugging Face training deps.
+# Create a local venv and install alien-ink (training deps are in the main set).
 #
 set -euo pipefail
 
@@ -20,7 +20,7 @@ source .venv/bin/activate
 echo "-------------------------------------------------------------------------"
 echo ":: Installing alien-ink and dependencies"
 echo "-------------------------------------------------------------------------"
-uv pip install -e ".[hf]"
+uv pip install -e .
 
 echo "-------------------------------------------------------------------------"
 echo ":: Ready"
