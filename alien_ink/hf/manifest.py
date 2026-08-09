@@ -182,7 +182,8 @@ class ScheduleConfig:
     max_steps: int = 50_000
     num_train_epochs: float = 3.0
     learning_rate: float = 6e-4
-    warmup_steps: int = 2_000
+    warmup_steps: int | None = 2_000
+    warmup_ratio: float | None = None
     weight_decay: float = 0.1
     max_grad_norm: float = 1.0
     lr_scheduler_type: str = "cosine"
@@ -224,15 +225,50 @@ class ScheduleConfig:
             raise ValueError(
                 f"max_steps must be >= 1 or -1 (epoch mode), got {self.max_steps}"
             )
-        if self.uses_epochs() and self.num_train_epochs <= 0:
+        if self.num_train_epochs <= 0:
             raise ValueError(
-                "num_train_epochs must be > 0 when max_steps=-1, "
-                f"got {self.num_train_epochs}"
+                f"num_train_epochs must be > 0, got {self.num_train_epochs}"
             )
         if self.learning_rate <= 0:
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
-        if self.warmup_steps < 0:
+        if self.warmup_steps is not None and self.warmup_steps < 0:
             raise ValueError(f"warmup_steps must be >= 0, got {self.warmup_steps}")
+        if self.warmup_ratio is not None and not 0.0 <= self.warmup_ratio < 1.0:
+            raise ValueError(
+                f"warmup_ratio must be in [0, 1), got {self.warmup_ratio}"
+            )
+        if self.warmup_steps is not None and self.warmup_ratio is not None:
+            raise ValueError("set only one of warmup_steps and warmup_ratio")
+        if (
+            not self.uses_epochs()
+            and self.warmup_steps is not None
+            and self.warmup_steps > self.max_steps
+        ):
+            raise ValueError(
+                f"warmup_steps ({self.warmup_steps}) cannot exceed "
+                f"max_steps ({self.max_steps})"
+            )
+        if self.weight_decay < 0:
+            raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
+        if self.max_grad_norm <= 0:
+            raise ValueError(f"max_grad_norm must be > 0, got {self.max_grad_norm}")
+        if self.seed < 0:
+            raise ValueError(f"seed must be >= 0, got {self.seed}")
+        if self.save_total_limit < 1:
+            raise ValueError(
+                f"save_total_limit must be >= 1, got {self.save_total_limit}"
+            )
+        if self.early_stopping_patience < 0:
+            raise ValueError(
+                "early_stopping_patience must be >= 0, "
+                f"got {self.early_stopping_patience}"
+            )
+        cadence = self.cadence()
+        for name, value in cadence.items():
+            if value < 1:
+                raise ValueError(f"{name} must be >= 1, got {value}")
+        if cadence["save_steps"] % cadence["eval_steps"] != 0:
+            raise ValueError("save_steps must be a multiple of eval_steps")
 
 
 @dataclass(frozen=True)
@@ -326,10 +362,12 @@ class Manifest:
             num_train_epochs=self.schedule.num_train_epochs,
             learning_rate=self.schedule.learning_rate,
             warmup_steps=self.schedule.warmup_steps,
+            warmup_ratio=self.schedule.warmup_ratio,
             weight_decay=self.schedule.weight_decay,
             max_grad_norm=self.schedule.max_grad_norm,
             lr_scheduler_type=self.schedule.lr_scheduler_type,
             seed=self.schedule.seed,
+            data_seed=self.data.seed,
             logging_steps=cadence["logging_steps"],
             eval_steps=cadence["eval_steps"],
             save_steps=cadence["save_steps"],

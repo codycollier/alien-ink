@@ -53,7 +53,7 @@ Controls loading, eval hold-out, and token packing:
 | Field | Typical value | Notes |
 |---|---|---|
 | `source` | `HubTextSource(...)` | Training corpus |
-| `eval_source` | optional second `HubTextSource` | Dedicated eval split; if omitted, the first N train rows are held out |
+| `eval_source` | optional second `HubTextSource` | Dedicated eval split; if omitted, N deterministically shuffled train rows are held out |
 | `mode` | `"stream"` | See load modes below |
 | `max_eval_samples` | `1000` | Eval is always a bounded map-style dataset |
 | `max_train_samples` | `None` for stream | Required for `subset` mode |
@@ -100,7 +100,7 @@ WikiText uses `@-@` as a hyphen placeholder — the tokenizer sees those charact
 Used by: `gpt-2_wikipedia_5k`
 
 - **Single train split** — no bundled validation set.
-- **Eval:** first `max_eval_samples` rows held out from the stream, then skipped for training.
+- **Eval:** `max_eval_samples` rows selected by a deterministic bounded-buffer shuffle, then skipped for training.
 - **Text character:** full article bodies; longer and more varied than WikiText.
 
 Example row shape:
@@ -130,7 +130,7 @@ text: "Mount Everest is Earth's highest mountain above sea level, located in the
 Preprocessing is **identical across model families** — only the tokenizer differs.
 
 1. **Load** rows via `load_train_eval(data)`.
-2. **Tokenize** the `text_column` with the family’s tokenizer (`tokenizer(examples["text"])`, batched).
+2. **Tokenize** without tokenizer-added special tokens, then append one EOS token to every document.
 3. **Chunk** token streams into contiguous blocks of `block_size` tokens.
 4. **Labels** are a copy of `input_ids` (standard causal LM: predict token *t* from tokens *0…t−1*).
 
@@ -148,9 +148,9 @@ By default (`respect_document_boundaries=True`):
 
 With `respect_document_boundaries=False` (classic packing — used by WikiText factories/zdecks):
 
-- Token streams are **concatenated** across rows in each map batch, then sliced.
+- EOS-delimited token streams are **concatenated** across rows and map batches, then sliced.
 - Document boundaries are **not** respected — a block may span two articles or lines.
-- Short rows pack with neighbors; a leftover shorter than one block is dropped.
+- Short rows pack with neighbors; remainders carry into the next map batch. Only the final incomplete worker-shard remainder is dropped.
 
 ```
   doc A tokens ──┐
@@ -158,7 +158,7 @@ With `respect_document_boundaries=False` (classic packing — used by WikiText f
   doc C tokens ──┘
 ```
 
-No BOS/EOS tokens are inserted between documents during packing (except whatever the tokenizer adds per row — see family notes below).
+Every document ends in exactly one EOS token. Tokenizer-added BOS/EOS tokens are disabled during preprocessing, preventing both unmarked joins and repeated BOS tokens inside packed blocks.
 
 ---
 
@@ -175,13 +175,14 @@ Architecture and tokenizer are set in `CausalLmArchConfig` (`alien_ink.hf.model`
 ### GPT-2 (`family="gpt-2"`)
 
 - Byte-pair tokenizer, vocab ~50k. No beginning-of-sequence token.
-- Training and completion both use **plain text** with default tokenizer behavior.
+- Training uses plain text plus explicit trailing EOS separators; generation has
+  its own family-aware special-token policy.
 - Typical zdeck pairings: WikiText-103, English Wikipedia.
 
 ### Gemma (`family="gemma"`)
 
 - SentencePiece tokenizer, vocab ~256k. Defines `<bos>`, `<eos>`, and pad tokens.
-- During training, each Hub row is tokenized with the tokenizer’s default settings (BOS may appear at the start of a row; with document-bounded chunking, block starts often align with row starts).
+- During training, tokenizer-added special tokens are disabled and each Hub row receives one trailing EOS separator.
 - **VRAM note:** the large vocabulary makes logits memory-heavy; Gemma zdecks use batch size 1 × grad accum 32 on an 8 GB GPU.
 - Typical zdeck pairings: C4 English.
 
@@ -205,6 +206,11 @@ A zdeck module is a Python file exporting a `MANIFEST`. Filenames mirror
 (supervised fine-tune; reserved — `train()` not implemented yet). The host
 token (e.g. `mist`) is the short machine profile used in names; full GPU
 details live on `hardware.label` (e.g. `mist-rtx-3070`).
+
+Archived schedules use `warmup_steps=None, warmup_ratio=0.04`, so epoch-based
+warmup follows the resolved packed dataset length. The schedule seed controls
+model/training randomness; the data seed separately controls shuffling,
+evaluation sampling, and `TrainingArguments.data_seed`.
 
 ```python
 MANIFEST = Manifest(

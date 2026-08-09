@@ -41,9 +41,12 @@ All families:
 
 - Initialize with **random weights** (`build_model_from_scratch`) — Hub model
   ids are for tokenizer / config shape, not pretrained checkpoints.
-- Train with packed causal-LM blocks (`labels = input_ids`).
+- Train with EOS-delimited packed causal-LM blocks (`labels = input_ids`);
+  tokenizer-added special tokens are disabled during preprocessing.
 - Use `use_cache=False` during training (compatible with gradient checkpointing).
 - Must satisfy `data.block_size ≤ model.n_positions` (zdecks use 1024 / 1024).
+- Set activation, dropout, normalization, initialization, RoPE, embedding tying,
+  KV heads, attention implementation, and special-token IDs explicitly.
 
 Generation defaults differ by family (`alien_ink.hf.gen.gen_config_for_family`).
 
@@ -183,9 +186,8 @@ the large vocabulary).
 - Name: `google/gemma-2b` (requires Hugging Face access / `HF_TOKEN`)
 - SentencePiece, vocab **~256k**
 - Defines `<bos>`, `<eos>`, and pad
-- During training, each Hub row is tokenized with the tokenizer’s defaults
-  (BOS may appear at row starts; with document-bounded chunking, early tokens
-  of a row often begin a block)
+- During training, tokenizer-added special tokens are disabled and one EOS is
+  appended to each Hub row.
 
 ### Hardware knobs (zdeck)
 
@@ -278,6 +280,16 @@ model = CausalLmArchConfig(
     n_head=12,
     head_dim=None,
     intermediate_size=None,
+    hidden_act="gelu_new",
+    hidden_dropout=0.1,
+    attention_dropout=0.1,
+    norm_epsilon=1e-5,
+    initializer_range=0.02,
+    rope_theta=None,
+    rotary_pct=None,
+    tie_word_embeddings=True,
+    num_key_value_heads=None,
+    attention_implementation="sdpa",
     use_cache=False,
 )
 

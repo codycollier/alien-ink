@@ -143,9 +143,8 @@ def test_load_materialized_hold_out_skips_eval_prefix():
     assert isinstance(eval_ds, Dataset)
     assert len(eval_ds) == 2
     assert len(train_ds) == 3
-    assert set(eval_ds["text"]) == {"t-0", "t-1"}
     assert set(train_ds["text"]).isdisjoint(set(eval_ds["text"]))
-    assert set(train_ds["text"]) == {"t-2", "t-3", "t-4"}
+    assert set(eval_ds["text"]) != {"t-0", "t-1"}
 
 
 def test_load_materialized_uses_eval_source():
@@ -172,7 +171,7 @@ def test_load_materialized_uses_eval_source():
     assert len(train_ds) == 3
     assert len(eval_ds) == 2
     assert set(train_ds["text"]) == {"train-0", "train-1", "train-2"}
-    assert set(eval_ds["text"]) == {"eval-0", "eval-1"}
+    assert set(eval_ds["text"]).issubset({f"eval-{i}" for i in range(4)})
 
 
 def test_load_complete_hold_out():
@@ -192,8 +191,34 @@ def test_load_complete_hold_out():
 
     assert len(eval_ds) == 2
     assert len(train_ds) == 4
-    assert set(eval_ds["text"]) == {"t-0", "t-1"}
     assert set(train_ds["text"]).isdisjoint(set(eval_ds["text"]))
+    assert set(eval_ds["text"]) != {"t-0", "t-1"}
+
+
+def test_eval_sampling_is_deterministic():
+    eval_rows = _rows("eval", 20)
+    cfg = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy", split="train"),
+        eval_source=HubTextSource(dataset="dummy", split="validation"),
+        mode="subset",
+        max_eval_samples=5,
+        max_train_samples=3,
+        stream_shuffle_buffer=20,
+        seed=7,
+    )
+
+    def fake_stream(source, *, trust_remote_code=False):
+        del trust_remote_code
+        prefix = "eval" if source.split == "validation" else "train"
+        rows = eval_rows if prefix == "eval" else _rows("train", 10)
+        return _iterable(rows)
+
+    with patch("alien_ink.hf.ds.stream_hub_text", side_effect=fake_stream):
+        _, first = load_materialized_train_eval(cfg, verbose=False)
+        _, second = load_materialized_train_eval(cfg, verbose=False)
+
+    assert first["text"] == second["text"]
+    assert set(first["text"]) != {f"eval-{i}" for i in range(5)}
 
 
 def test_load_streaming_rejects_wrong_mode():

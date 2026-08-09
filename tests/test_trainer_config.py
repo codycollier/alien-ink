@@ -126,15 +126,20 @@ def test_build_training_arguments_epoch_strategy(monkeypatch, tmp_path: Path):
 
 def test_build_training_arguments_speed_knobs(monkeypatch, tmp_path: Path):
     from alien_ink.hf import trainer as trainer_mod
+    from transformers import training_args as training_args_mod
 
     monkeypatch.setattr(
         trainer_mod,
         "device_info",
         lambda **_kwargs: ("cuda", False, True),
     )
+    monkeypatch.setattr(training_args_mod, "is_torch_tf32_available", lambda: True)
     cfg = CausalLmTrainerConfig(
         output_dir=tmp_path / "out",
         max_steps=100,
+        warmup_steps=None,
+        warmup_ratio=0.04,
+        data_seed=303,
         dataloader_num_workers=8,
         dataloader_prefetch_factor=4,
         dataloader_persistent_workers=True,
@@ -151,6 +156,30 @@ def test_build_training_arguments_speed_knobs(monkeypatch, tmp_path: Path):
     assert args.torch_compile is True
     assert args.optim == "adamw_torch_fused"
     assert args.gradient_checkpointing is False
+    assert args.warmup_steps == 0
+    assert args.warmup_ratio == 0.04
+    assert args.data_seed == 303
+
+
+def test_trainer_config_validates_warmup_and_cadence(tmp_path: Path):
+    with pytest.raises(ValueError, match="only one"):
+        CausalLmTrainerConfig(
+            output_dir=tmp_path / "out",
+            warmup_steps=10,
+            warmup_ratio=0.1,
+        ).validate()
+    with pytest.raises(ValueError, match="cannot exceed"):
+        CausalLmTrainerConfig(
+            output_dir=tmp_path / "out",
+            max_steps=10,
+            warmup_steps=11,
+        ).validate()
+    with pytest.raises(ValueError, match="multiple"):
+        CausalLmTrainerConfig(
+            output_dir=tmp_path / "out",
+            eval_steps=30,
+            save_steps=100,
+        ).validate()
 
 
 def test_optimizer_steps_per_epoch_matches_hf_ceil_math():

@@ -72,7 +72,8 @@ class CausalLmTrainerConfig:
     gradient_accumulation_steps: int = 16
     learning_rate: float = 6e-4
     lr_scheduler_type: str = "cosine"
-    warmup_steps: int = 2_000
+    warmup_steps: int | None = 2_000
+    warmup_ratio: float | None = None
     weight_decay: float = 0.1
     max_grad_norm: float = 1.0
     adam_beta1: float = 0.9
@@ -83,6 +84,7 @@ class CausalLmTrainerConfig:
     save_total_limit: int = 2
     early_stopping_patience: int = 0
     seed: int = 101
+    data_seed: int = 101
     prefer_fp16: bool = True
     prefer_bf16: bool = True
     gradient_checkpointing: bool = True
@@ -110,6 +112,8 @@ class CausalLmTrainerConfig:
                 "num_train_epochs must be > 0 when max_steps=-1, "
                 f"got {self.num_train_epochs}"
             )
+        if not self.uses_epochs() and self.num_train_epochs <= 0:
+            raise ValueError(f"num_train_epochs must be > 0, got {self.num_train_epochs}")
         if self.per_device_train_batch_size < 1:
             raise ValueError(
                 "per_device_train_batch_size must be >= 1, "
@@ -127,8 +131,56 @@ class CausalLmTrainerConfig:
             )
         if self.learning_rate <= 0:
             raise ValueError(f"learning_rate must be > 0, got {self.learning_rate}")
-        if self.warmup_steps < 0:
+        if self.warmup_steps is not None and self.warmup_steps < 0:
             raise ValueError(f"warmup_steps must be >= 0, got {self.warmup_steps}")
+        if self.warmup_ratio is not None and not 0.0 <= self.warmup_ratio < 1.0:
+            raise ValueError(
+                f"warmup_ratio must be in [0, 1), got {self.warmup_ratio}"
+            )
+        if self.warmup_steps is not None and self.warmup_ratio is not None:
+            raise ValueError("set only one of warmup_steps and warmup_ratio")
+        if (
+            not self.uses_epochs()
+            and self.warmup_steps is not None
+            and self.warmup_steps > self.max_steps
+        ):
+            raise ValueError(
+                f"warmup_steps ({self.warmup_steps}) cannot exceed "
+                f"max_steps ({self.max_steps})"
+            )
+        if self.weight_decay < 0:
+            raise ValueError(f"weight_decay must be >= 0, got {self.weight_decay}")
+        if self.max_grad_norm <= 0:
+            raise ValueError(f"max_grad_norm must be > 0, got {self.max_grad_norm}")
+        for name, value in (
+            ("adam_beta1", self.adam_beta1),
+            ("adam_beta2", self.adam_beta2),
+        ):
+            if not 0.0 <= value < 1.0:
+                raise ValueError(f"{name} must be in [0, 1), got {value}")
+        for name, value in (
+            ("logging_steps", self.logging_steps),
+            ("eval_steps", self.eval_steps),
+            ("save_steps", self.save_steps),
+            ("save_total_limit", self.save_total_limit),
+        ):
+            if value < 1:
+                raise ValueError(f"{name} must be >= 1, got {value}")
+        if self.save_steps % self.eval_steps != 0:
+            raise ValueError("save_steps must be a multiple of eval_steps")
+        if self.early_stopping_patience < 0:
+            raise ValueError(
+                "early_stopping_patience must be >= 0, "
+                f"got {self.early_stopping_patience}"
+            )
+        if self.seed < 0:
+            raise ValueError(f"seed must be >= 0, got {self.seed}")
+        if self.data_seed < 0:
+            raise ValueError(f"data_seed must be >= 0, got {self.data_seed}")
+        if self.dataloader_num_workers < 0:
+            raise ValueError(
+                f"dataloader_num_workers must be >= 0, got {self.dataloader_num_workers}"
+            )
         if (
             self.dataloader_prefetch_factor is not None
             and self.dataloader_prefetch_factor < 1
@@ -277,6 +329,7 @@ def build_training_arguments(
     has_eval: bool,
 ) -> TrainingArguments:
     """Map ``CausalLmTrainerConfig`` onto HF ``TrainingArguments``."""
+    config.validate()
     device, use_fp16, use_bf16 = device_info(
         prefer_bf16=config.prefer_bf16,
         prefer_fp16=config.prefer_fp16,
@@ -305,7 +358,8 @@ def build_training_arguments(
         gradient_checkpointing=config.gradient_checkpointing,
         learning_rate=config.learning_rate,
         lr_scheduler_type=config.lr_scheduler_type,
-        warmup_steps=config.warmup_steps,
+        warmup_steps=config.warmup_steps or 0,
+        warmup_ratio=config.warmup_ratio or 0.0,
         weight_decay=config.weight_decay,
         max_grad_norm=config.max_grad_norm,
         adam_beta1=config.adam_beta1,
@@ -332,6 +386,7 @@ def build_training_arguments(
             config.dataloader_persistent_workers and num_workers > 0
         ),
         seed=config.seed,
+        data_seed=config.data_seed,
         remove_unused_columns=False,
     )
     if config.dataloader_prefetch_factor is not None and num_workers > 0:

@@ -57,6 +57,16 @@ MANIFEST = Manifest(
         n_head=8,
         head_dim=64,
         intermediate_size=2048,
+        hidden_act="gelu_pytorch_tanh",
+        hidden_dropout=0.0,
+        attention_dropout=0.0,
+        norm_epsilon=1e-6,
+        initializer_range=0.02,
+        rope_theta=10_000.0,
+        rotary_pct=None,
+        tie_word_embeddings=True,
+        num_key_value_heads=8,
+        attention_implementation="sdpa",
         use_cache=False,
     ),
     hardware=HardwareConfig(
@@ -85,9 +95,8 @@ MANIFEST = Manifest(
         max_steps=-1,
         num_train_epochs=4.0,
         learning_rate=6e-4,
-        # Approximate warmup; packed block count (and therefore optimizer steps)
-        # depends on the tokenizer. Effective batch is 32 blocks/update.
-        warmup_steps=640,
+        warmup_steps=None,
+        warmup_ratio=0.04,
         weight_decay=0.1,
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",

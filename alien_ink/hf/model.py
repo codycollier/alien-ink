@@ -33,7 +33,18 @@ AttentionImplementation = Literal["eager", "sdpa"]
 
 # Mist / RTX 3070 (~8 GB) friendly defaults for from-scratch pretraining.
 _MIST_GPT2 = dict(n_positions=1024, n_embd=768, n_layer=12, n_head=12)
-_MIST_GPT_NEOX = dict(n_positions=1024, n_embd=768, n_layer=12, n_head=12)
+_MIST_GPT_NEOX = dict(
+    n_positions=1024,
+    n_embd=768,
+    n_layer=12,
+    n_head=12,
+    hidden_act="gelu",
+    hidden_dropout=0.0,
+    attention_dropout=0.0,
+    rope_theta=10_000.0,
+    rotary_pct=0.25,
+    tie_word_embeddings=False,
+)
 _MIST_GEMMA = dict(
     n_positions=1024,
     n_embd=512,
@@ -41,6 +52,13 @@ _MIST_GEMMA = dict(
     n_head=8,
     head_dim=64,
     intermediate_size=2048,
+    hidden_act="gelu_pytorch_tanh",
+    hidden_dropout=0.0,
+    attention_dropout=0.0,
+    norm_epsilon=1e-6,
+    rope_theta=10_000.0,
+    tie_word_embeddings=True,
+    num_key_value_heads=8,
 )
 
 
@@ -60,6 +78,15 @@ class CausalLmArchConfig:
     n_head: int = 12
     head_dim: int | None = None
     intermediate_size: int | None = None
+    hidden_act: str = "gelu_new"
+    hidden_dropout: float = 0.1
+    attention_dropout: float = 0.1
+    norm_epsilon: float = 1e-5
+    initializer_range: float = 0.02
+    rope_theta: float | None = None
+    rotary_pct: float | None = None
+    tie_word_embeddings: bool = True
+    num_key_value_heads: int | None = None
     # SDPA dispatches to PyTorch's fused Flash / memory-efficient kernels when
     # the GPU, dtype, and shape permit it (including the RTX 3070).  ``eager``
     # remains available as a compatibility escape hatch.
@@ -85,11 +112,51 @@ class CausalLmArchConfig:
             )
         if self.head_dim is not None and self.head_dim < 1:
             raise ValueError(f"head_dim must be >= 1 when set, got {self.head_dim}")
+        if self.head_dim is not None and self.n_embd != self.n_head * self.head_dim:
+            raise ValueError(
+                f"n_embd ({self.n_embd}) must equal n_head * head_dim "
+                f"({self.n_head * self.head_dim})"
+            )
         if self.intermediate_size is not None and self.intermediate_size < 1:
             raise ValueError(
                 "intermediate_size must be >= 1 when set, "
                 f"got {self.intermediate_size}"
             )
+        if not self.hidden_act.strip():
+            raise ValueError("hidden_act must be a non-empty string")
+        for name, value in (
+            ("hidden_dropout", self.hidden_dropout),
+            ("attention_dropout", self.attention_dropout),
+        ):
+            if not 0.0 <= value < 1.0:
+                raise ValueError(f"{name} must be in [0, 1), got {value}")
+        if self.norm_epsilon <= 0:
+            raise ValueError(f"norm_epsilon must be > 0, got {self.norm_epsilon}")
+        if self.initializer_range <= 0:
+            raise ValueError(
+                f"initializer_range must be > 0, got {self.initializer_range}"
+            )
+        if self.rope_theta is not None and self.rope_theta <= 0:
+            raise ValueError(f"rope_theta must be > 0 when set, got {self.rope_theta}")
+        if self.rotary_pct is not None and not 0.0 < self.rotary_pct <= 1.0:
+            raise ValueError(f"rotary_pct must be in (0, 1], got {self.rotary_pct}")
+        if self.family != "gpt-neox" and self.rotary_pct is not None:
+            raise ValueError("rotary_pct is only supported for gpt-neox")
+        if self.num_key_value_heads is not None:
+            if self.family != "gemma":
+                raise ValueError("num_key_value_heads is only supported for gemma")
+            if self.num_key_value_heads < 1:
+                raise ValueError(
+                    "num_key_value_heads must be >= 1 when set, "
+                    f"got {self.num_key_value_heads}"
+                )
+            if self.n_head % self.num_key_value_heads != 0:
+                raise ValueError(
+                    f"n_head ({self.n_head}) must be divisible by "
+                    f"num_key_value_heads ({self.num_key_value_heads})"
+                )
+        if self.family == "gemma" and self.hidden_dropout != 0.0:
+            raise ValueError("gemma does not support hidden_dropout; use 0.0")
         if self.attention_implementation not in {"eager", "sdpa"}:
             raise ValueError(
                 "attention_implementation must be 'eager' or 'sdpa', got "
@@ -148,6 +215,11 @@ def build_model_from_scratch(
         )
 
     vocab_size = len(tokenizer) if hasattr(tokenizer, "__len__") else tokenizer.vocab_size
+    special_token_ids = {
+        "bos_token_id": tokenizer.bos_token_id,
+        "eos_token_id": tokenizer.eos_token_id,
+        "pad_token_id": tokenizer.pad_token_id,
+    }
 
     if arch.family == "gpt-2":
         model_config = GPT2Config(
@@ -156,7 +228,17 @@ def build_model_from_scratch(
             n_embd=arch.n_embd,
             n_layer=arch.n_layer,
             n_head=arch.n_head,
+            n_inner=arch.intermediate_size,
+            activation_function=arch.hidden_act,
+            resid_pdrop=arch.hidden_dropout,
+            embd_pdrop=arch.hidden_dropout,
+            attn_pdrop=arch.attention_dropout,
+            layer_norm_epsilon=arch.norm_epsilon,
+            initializer_range=arch.initializer_range,
+            tie_word_embeddings=arch.tie_word_embeddings,
             attn_implementation=arch.attention_implementation,
+            use_cache=arch.use_cache,
+            **special_token_ids,
         )
         model: PreTrainedModel = GPT2LMHeadModel(model_config)
     elif arch.family == "gpt-neox":
@@ -168,7 +250,17 @@ def build_model_from_scratch(
             num_hidden_layers=arch.n_layer,
             num_attention_heads=arch.n_head,
             intermediate_size=intermediate,
+            hidden_act=arch.hidden_act,
+            hidden_dropout=arch.hidden_dropout,
+            attention_dropout=arch.attention_dropout,
+            layer_norm_eps=arch.norm_epsilon,
+            initializer_range=arch.initializer_range,
+            rotary_emb_base=arch.rope_theta or 10_000.0,
+            rotary_pct=arch.rotary_pct or 0.25,
+            tie_word_embeddings=arch.tie_word_embeddings,
             attn_implementation=arch.attention_implementation,
+            use_cache=arch.use_cache,
+            **special_token_ids,
         )
         model = GPTNeoXForCausalLM(model_config)
     elif arch.family == "gemma":
@@ -176,16 +268,34 @@ def build_model_from_scratch(
         intermediate = arch.intermediate_size or (4 * arch.n_embd)
         # GemmaConfig defaults num_key_value_heads=16 even when
         # num_attention_heads is overridden; mismatch breaks SDPA.
+        rope_kwargs = (
+            {
+                "rope_parameters": {
+                    "rope_type": "default",
+                    "rope_theta": arch.rope_theta or 10_000.0,
+                }
+            }
+            if "rope_parameters" in getattr(GemmaConfig, "__annotations__", {})
+            else {"rope_theta": arch.rope_theta or 10_000.0}
+        )
         model_config = GemmaConfig(
             vocab_size=vocab_size,
             max_position_embeddings=arch.n_positions,
             hidden_size=arch.n_embd,
             num_hidden_layers=arch.n_layer,
             num_attention_heads=arch.n_head,
-            num_key_value_heads=arch.n_head,
+            num_key_value_heads=arch.num_key_value_heads or arch.n_head,
             head_dim=head_dim,
             intermediate_size=intermediate,
+            hidden_act=arch.hidden_act,
+            attention_dropout=arch.attention_dropout,
+            rms_norm_eps=arch.norm_epsilon,
+            initializer_range=arch.initializer_range,
+            tie_word_embeddings=arch.tie_word_embeddings,
             attn_implementation=arch.attention_implementation,
+            use_cache=arch.use_cache,
+            **special_token_ids,
+            **rope_kwargs,
         )
         model = GemmaForCausalLM(model_config)
     else:

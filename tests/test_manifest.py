@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import importlib
+import inspect
+import pkgutil
 from pathlib import Path
 
 import pytest
@@ -91,6 +94,8 @@ def test_manifest_to_pretrain_config_merges_segments(tmp_path: Path, monkeypatch
     assert cfg.trainer.run_name == "test-run"
     assert cfg.trainer.max_steps == 5_000
     assert cfg.trainer.warmup_steps == 200
+    assert cfg.trainer.warmup_ratio is None
+    assert cfg.trainer.data_seed == manifest.data.seed
     assert cfg.trainer.per_device_train_batch_size == 4
     assert cfg.trainer.gradient_accumulation_steps == 8
     assert cfg.trainer.torch_compile is True
@@ -247,3 +252,42 @@ def test_manifest_stage_variant_and_validate():
 def test_manifest_train_sft_not_implemented():
     with pytest.raises(NotImplementedError, match="sft"):
         _manifest(stage="sft").train()
+
+
+def test_schedule_validates_ratio_and_cadence():
+    ScheduleConfig(max_steps=100, warmup_steps=None, warmup_ratio=0.04).validate()
+    with pytest.raises(ValueError, match="only one"):
+        ScheduleConfig(warmup_steps=10, warmup_ratio=0.1).validate()
+    with pytest.raises(ValueError, match="multiple"):
+        ScheduleConfig(eval_steps=30, save_steps=100).validate()
+
+
+def test_all_zdeck_manifests_are_explicit_and_valid():
+    import alien_ink.zdeck as zdeck
+
+    required_model_fields = {
+        "hidden_act",
+        "hidden_dropout",
+        "attention_dropout",
+        "norm_epsilon",
+        "initializer_range",
+        "rope_theta",
+        "rotary_pct",
+        "tie_word_embeddings",
+        "num_key_value_heads",
+        "attention_implementation",
+    }
+    modules = [
+        info.name
+        for info in pkgutil.iter_modules(zdeck.__path__)
+        if not info.name.startswith("_")
+    ]
+    assert modules
+    for name in modules:
+        module = importlib.import_module(f"alien_ink.zdeck.{name}")
+        manifest = module.MANIFEST
+        manifest.validate()
+        source = inspect.getsource(module)
+        for field_name in required_model_fields:
+            assert f"{field_name}=" in source, f"{name} omits {field_name}"
+        assert "warmup_ratio=" in source, f"{name} omits warmup_ratio"

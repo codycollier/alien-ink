@@ -311,6 +311,16 @@ def materialize_prefix(stream: IterableDataset, n: int) -> Dataset:
     return Dataset.from_list(rows)
 
 
+def shuffled_stream(
+    stream: IterableDataset,
+    *,
+    seed: int,
+    buffer_size: int,
+) -> IterableDataset:
+    """Return a deterministic bounded-buffer shuffle for sampling or training."""
+    return stream.shuffle(seed=seed, buffer_size=buffer_size)
+
+
 def skip_and_shuffle(
     stream: IterableDataset,
     *,
@@ -359,9 +369,14 @@ def load_streaming_train_eval(
                 f"from {_source_label(eval_source)} [{eval_source.split}]...",
                 logger=log,
             )
-        eval_stream = stream_hub_text(eval_source, trust_remote_code=trust_remote_code)
+        eval_stream = shuffled_stream(
+            stream_hub_text(eval_source, trust_remote_code=trust_remote_code),
+            seed=data.seed,
+            buffer_size=data.stream_shuffle_buffer,
+        )
         eval_dataset = materialize_prefix(eval_stream, data.max_eval_samples)
-        train_stream = train_stream.shuffle(
+        train_stream = shuffled_stream(
+            train_stream,
             seed=data.seed,
             buffer_size=data.stream_shuffle_buffer,
         )
@@ -381,13 +396,13 @@ def load_streaming_train_eval(
             f"Materializing {data.max_eval_samples} held-out eval rows...",
             logger=log,
         )
-    eval_dataset = materialize_prefix(train_stream, data.max_eval_samples)
-    train_stream = skip_and_shuffle(
+    sampled_stream = shuffled_stream(
         train_stream,
-        skip=data.max_eval_samples,
         seed=data.seed,
         buffer_size=data.stream_shuffle_buffer,
     )
+    eval_dataset = materialize_prefix(sampled_stream, data.max_eval_samples)
+    train_stream = sampled_stream.skip(data.max_eval_samples)
     if verbose:
         detail(f"eval examples:  {len(eval_dataset):,} (held out)", logger=log)
         detail(
@@ -437,7 +452,11 @@ def load_materialized_train_eval(
                 f"from {_source_label(eval_source)} [{eval_source.split}]...",
                 logger=log,
             )
-        eval_stream = stream_hub_text(eval_source, trust_remote_code=trust_remote_code)
+        eval_stream = shuffled_stream(
+            stream_hub_text(eval_source, trust_remote_code=trust_remote_code),
+            seed=data.seed,
+            buffer_size=data.stream_shuffle_buffer,
+        )
         eval_dataset = materialize_prefix(eval_stream, data.max_eval_samples)
         train_dataset = materialize_prefix(train_stream, n_train)
         eval_label = eval_source.split
@@ -447,9 +466,16 @@ def load_materialized_train_eval(
                 f"Materializing {data.max_eval_samples} held-out eval rows...",
                 logger=log,
             )
-        eval_dataset = materialize_prefix(train_stream, data.max_eval_samples)
-        train_stream = train_stream.skip(data.max_eval_samples)
-        train_dataset = materialize_prefix(train_stream, n_train)
+        sampled_stream = shuffled_stream(
+            train_stream,
+            seed=data.seed,
+            buffer_size=data.stream_shuffle_buffer,
+        )
+        eval_dataset = materialize_prefix(sampled_stream, data.max_eval_samples)
+        train_dataset = materialize_prefix(
+            sampled_stream.skip(data.max_eval_samples),
+            n_train,
+        )
         eval_label = "held out"
 
     train_dataset = train_dataset.shuffle(seed=data.seed)
@@ -491,7 +517,7 @@ def load_complete_train_eval(
                 logger=log,
             )
         eval_full = load_hub_text(eval_source, trust_remote_code=trust_remote_code)
-        eval_dataset = eval_full.select(
+        eval_dataset = eval_full.shuffle(seed=data.seed).select(
             range(min(data.max_eval_samples, len(eval_full)))
         )
         train_dataset = train_full.shuffle(seed=data.seed)
@@ -502,11 +528,10 @@ def load_complete_train_eval(
                 f"Holding out {data.max_eval_samples} eval rows from complete split...",
                 logger=log,
             )
-        n_eval = min(data.max_eval_samples, len(train_full))
-        eval_dataset = train_full.select(range(n_eval))
-        train_dataset = train_full.select(range(n_eval, len(train_full))).shuffle(
-            seed=data.seed
-        )
+        shuffled = train_full.shuffle(seed=data.seed)
+        n_eval = min(data.max_eval_samples, len(shuffled))
+        eval_dataset = shuffled.select(range(n_eval))
+        train_dataset = shuffled.select(range(n_eval, len(shuffled)))
         eval_label = "held out"
 
     if verbose:

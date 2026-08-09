@@ -13,7 +13,10 @@ from alien_ink.hf.tok import chunk_into_blocks, column_names, tokenize_and_chunk
 
 
 class _FakeTok:
-    def __call__(self, texts):
+    eos_token_id = 99
+
+    def __call__(self, texts, *, add_special_tokens=True):
+        assert add_special_tokens is False
         # Variable-length token ids from character ordinals (stable, tiny).
         input_ids = [[ord(ch) % 50 for ch in text] for text in texts]
         attention_mask = [[1] * len(ids) for ids in input_ids]
@@ -85,3 +88,26 @@ def test_tokenize_and_chunk_end_to_end():
     )
     assert len(out) >= 1
     assert "labels" in out.column_names
+
+
+def test_packed_documents_have_eos_and_carry_remainders_between_batches():
+    ds = Dataset.from_list([{"text": "abc"}, {"text": "def"}])
+    out = tokenize_and_chunk(
+        ds,
+        _FakeTok(),
+        block_size=8,
+        respect_document_boundaries=False,
+        num_proc=None,
+        map_batch_size=1,
+    )
+    assert len(out) == 1
+    assert out[0]["input_ids"] == [
+        ord("a") % 50,
+        ord("b") % 50,
+        ord("c") % 50,
+        99,
+        ord("d") % 50,
+        ord("e") % 50,
+        ord("f") % 50,
+        99,
+    ]

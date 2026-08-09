@@ -91,7 +91,9 @@ produce no blocks; long rows become multiple blocks with a dropped remainder.
 
 Set `respect_document_boundaries=False` to concatenate across rows before
 slicing (classic packing). WikiText factories and zdecks do this because Hub
-rows are line-oriented and usually shorter than one block.
+rows are line-oriented and usually shorter than one block. Each row receives
+one EOS separator, and incomplete tails carry across map batches; only a final
+incomplete worker-shard tail is discarded.
 
 ---
 
@@ -133,7 +135,7 @@ Too homogeneous for web-scale robustness — prefer C4 for that.
 | **Train** | **~6.4M** articles (one row ≈ one article) |
 | **Scale (est.)** | ~3–5B words · ~4–7B GPT-2 BPE · ~4–7M packed blocks |
 | **Mist / epoch** | **~120k–210k steps** · **~5–8.5 d** (~170k / ~7 d midpoint) |
-| **Eval** | No val split — hold out first `max_eval_samples` stream rows |
+| **Eval** | No val split — hold out a seeded shuffled sample of `max_eval_samples` rows |
 | **Zdeck** | `gpt-2_wikipedia_5k` (5k steps ≈ **2–4%** of one epoch) |
 
 Full cleaned article bodies from the 2023-11-01 English dump (markup stripped,

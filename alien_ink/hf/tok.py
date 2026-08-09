@@ -27,12 +27,25 @@ def tokenize_text(
     text_column: str = "text",
     num_proc: int | None = 4,
 ):
-    """Map a text column through ``tokenizer``; drop original columns."""
+    """Tokenize documents with one explicit EOS separator; drop source columns."""
     is_streaming = isinstance(dataset, IterableDataset)
     cols = column_names(dataset)
+    eos_token_id = tokenizer.eos_token_id
+    if eos_token_id is None:
+        raise ValueError("causal-LM packing requires tokenizer.eos_token_id")
 
     def tokenize_function(examples):
-        return tokenizer(examples[text_column])
+        encoded = tokenizer(examples[text_column], add_special_tokens=False)
+        for index, input_ids in enumerate(encoded["input_ids"]):
+            input_ids.append(eos_token_id)
+            if "attention_mask" in encoded:
+                encoded["attention_mask"][index].append(1)
+            for key, values in encoded.items():
+                if key in {"input_ids", "attention_mask"}:
+                    continue
+                # Keep any tokenizer-specific per-token fields aligned.
+                values[index].append(values[index][-1] if values[index] else 0)
+        return encoded
 
     kwargs: dict[str, Any] = {"batched": True, "remove_columns": cols}
     # Streaming datasets are processed lazily and cannot use multiprocessing
@@ -70,6 +83,8 @@ def chunk_into_blocks(
     """
     is_streaming = isinstance(tokenized, IterableDataset)
 
+    remainder: dict[str, list] = {}
+
     def group_texts(examples):
         if respect_document_boundaries:
             chunks = {key: [] for key in examples}
@@ -81,15 +96,27 @@ def chunk_into_blocks(
             chunks["labels"] = [ids[:] for ids in chunks["input_ids"]]
             return chunks
 
-        concatenated = {key: sum(examples[key], []) for key in examples}
+        concatenated = {
+            key: remainder.get(key, []) + sum(examples[key], [])
+            for key in examples
+        }
         total_length = len(concatenated["input_ids"])
         if total_length < block_size:
+            remainder.clear()
+            remainder.update(concatenated)
             return {key: [] for key in concatenated}
-        total_length = (total_length // block_size) * block_size
+        packed_length = (total_length // block_size) * block_size
         chunks = {
-            key: [values[i : i + block_size] for i in range(0, total_length, block_size)]
+            key: [
+                values[i : i + block_size]
+                for i in range(0, packed_length, block_size)
+            ]
             for key, values in concatenated.items()
         }
+        remainder.clear()
+        remainder.update(
+            {key: values[packed_length:] for key, values in concatenated.items()}
+        )
         chunks["labels"] = chunks["input_ids"].copy()
         return chunks
 
