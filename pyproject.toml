@@ -24,11 +24,20 @@ classifiers = [
 ]
 
 dependencies = [
+    "accelerate>=1.1.0",
+    "datasets>=2.14",
+    # Optional RTX/CUDA acceleration for Gemma.
+    # Liger's fused linear cross-entropy avoids materializing the full
+    # 256k-vocabulary logits tensor during training.
+    "liger-kernel>=0.5",
     'python-dotenv>=1.0',
     # Transformers 5 requires PyTorch >=2.4. Keep the runtime floor aligned
     # with the current supported Trainer/model stack rather than allowing a
     # resolver to install an unusable combination.
     'torch>=2.4',
+    "tqdm",
+    "transformers>=4.46",
+    "wandb>=0.16",
 ]
 
 [project.urls]
@@ -36,26 +45,6 @@ Homepage = "https://pypi.org/project/alien-ink/"
 Repository = "https://github.com/codycollier/alien-ink"
 
 [project.optional-dependencies]
-wb = [
-    "wandb>=0.16",
-]
-hf = [
-    "accelerate>=1.1.0",
-    "datasets>=2.14",
-    "transformers>=4.46",
-    "wandb>=0.16",
-]
-
-# Optional RTX/CUDA acceleration for Gemma. Liger's fused linear cross-entropy
-# avoids materializing the full 256k-vocabulary logits tensor during training.
-liger = [
-    "liger-kernel>=0.5",
-]
-
-examples = [
-    "tqdm",
-]
-
 test = [
     "pytest",
 ]
