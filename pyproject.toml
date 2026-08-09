@@ -26,10 +26,6 @@ classifiers = [
 dependencies = [
     "accelerate>=1.1.0",
     "datasets>=2.14",
-    # Optional RTX/CUDA acceleration for Gemma.
-    # Liger's fused linear cross-entropy avoids materializing the full
-    # 256k-vocabulary logits tensor during training.
-    "liger-kernel>=0.5",
     'python-dotenv>=1.0',
     # Transformers 5 requires PyTorch >=2.4. Keep the runtime floor aligned
     # with the current supported Trainer/model stack rather than allowing a

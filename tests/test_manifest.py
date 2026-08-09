@@ -201,7 +201,6 @@ def test_manifest_speed_hardware_knobs(tmp_path: Path, monkeypatch):
         gradient_checkpointing=False,
         tf32=True,
         torch_compile=True,
-        use_liger_kernel=True,
         optim="adamw_torch_fused",
     )
     cfg = manifest.to_pretrain_config()
@@ -213,7 +212,6 @@ def test_manifest_speed_hardware_knobs(tmp_path: Path, monkeypatch):
     assert cfg.trainer.gradient_checkpointing is False
     assert cfg.trainer.tf32 is True
     assert cfg.trainer.torch_compile is True
-    assert cfg.trainer.use_liger_kernel is True
     assert cfg.trainer.optim == "adamw_torch_fused"
 
 

@@ -83,8 +83,6 @@ class HardwareConfig:
     # Ampere+ TF32 tensor cores; None leaves the HF / torch default alone.
     tf32: bool | None = True
     torch_compile: bool = True
-    # Requires the optional ``liger-kernel`` package. Prefer for Gemma only.
-    use_liger_kernel: bool = False
     # ``adamw_torch_fused`` is faster on CUDA when the PyTorch build supports it.
     optim: str = "adamw_torch_fused"
 
@@ -348,7 +346,6 @@ class Manifest:
             gradient_checkpointing=self.hardware.gradient_checkpointing,
             tf32=self.hardware.tf32,
             torch_compile=self.hardware.torch_compile,
-            use_liger_kernel=self.hardware.use_liger_kernel,
             optim=self.hardware.optim,
             report_to="wandb" if self.wandb.enabled else "none",
             **dict(self.trainer_overrides),

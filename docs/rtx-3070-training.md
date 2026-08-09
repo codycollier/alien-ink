@@ -42,28 +42,10 @@ The current model is a Gemma-shaped 165M-parameter model, not Gemma-2B. About
 about 34M in the transformer trunk. This is why it is expensive but not
 proportionally capable on English-only data.
 
-For the largest practical improvement on C4, install the optional CUDA extra:
-
-```bash
-pip install -e '.[hf,liger]'
-```
-
-Then enable Liger only for Gemma (in its `HardwareConfig`):
-
-```python
-hardware=HardwareConfig(
-    # ...the existing RTX 3070 fields...
-    use_liger_kernel=True,
-)
-```
-
-Liger supports Gemma's fused linear cross-entropy, which avoids retaining the
-full vocabulary-logit tensor during training. Validate one 50–100 step run
-against the standard loss before committing a long run. If Gemma is intended
-only for English, the deeper architectural improvement is a separately trained
-32k–64k tokenizer and a correspondingly smaller embedding/head, not shrinking
-`vocab_size` while still using Gemma's 256k-token tokenizer (that would produce
-invalid token ids).
+If Gemma is intended only for English, the deeper architectural improvement is
+a separately trained 32k–64k tokenizer and a correspondingly smaller
+embedding/head, not shrinking `vocab_size` while still using Gemma's
+256k-token tokenizer (that would produce invalid token ids).
 
 ### GPT-NeoX
 
@@ -106,5 +88,4 @@ actual CUDA environment; do not assume it wins for short 5k-step experiments.
 - [Hugging Face: efficient single-GPU training](https://huggingface.co/docs/transformers/v4.45.2/perf_train_gpu_one) — checkpointing trade-off, mixed precision, and TF32 guidance.
 - [Hugging Face: mixed precision training](https://huggingface.co/docs/transformers/mixed_precision_training) — bf16/TF32 behavior on Ampere.
 - [PyTorch SDPA documentation](https://docs.pytorch.org/docs/stable/generated/torch.nn.functional.scaled_dot_product_attention) — automatic fused attention-kernel selection.
-- [Liger Kernel supported-model matrix](https://github.com/linkedin/Liger-Kernel) — Gemma fused linear cross-entropy support.
 - [Training Compute-Optimal Large Language Models](https://arxiv.org/abs/2203.15556) — the compute-optimal token/model-size analysis.

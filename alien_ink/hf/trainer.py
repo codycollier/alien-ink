@@ -91,9 +91,6 @@ class CausalLmTrainerConfig:
     dataloader_persistent_workers: bool = False
     tf32: bool | None = None
     torch_compile: bool = False
-    # Opt-in because this requires the separate ``liger-kernel`` CUDA package.
-    # Most valuable for Gemma's large-vocabulary fused LM head.
-    use_liger_kernel: bool = False
     optim: str = "adamw_torch"
     run_name: str = "causal-lm"
     report_to: str = "wandb"
@@ -327,7 +324,6 @@ def build_training_arguments(
         fp16=use_fp16,
         tf32=config.tf32,
         torch_compile=config.torch_compile,
-        use_liger_kernel=config.use_liger_kernel,
         report_to=report_to,
         run_name=config.run_name,
         dataloader_pin_memory=device == "cuda",

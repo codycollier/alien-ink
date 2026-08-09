@@ -109,10 +109,9 @@ SentencePiece tokenization. For English-only experiments, do not interpret the
 vocabulary: much of the Gemma parameter budget is in the tied embedding/head
 table.
 
-Use the optional Liger fused cross-entropy path only after validating a short
-standard-loss run against it. A separately trained 32k–64k tokenizer would be a
-more meaningful English Gemma experiment than shrinking the model while
-retaining Gemma's 256k tokenizer.
+A separately trained 32k–64k tokenizer would be a more meaningful English
+Gemma experiment than shrinking the model while retaining Gemma's 256k
+tokenizer.
 
 ## Track B: full-parameter fine-tuning
 
@@ -271,7 +270,7 @@ accumulate adapter types without a common evaluation protocol.
 3. Pythia-70M from-scratch pretraining run.
 4. Pythia-160M comparison and checkpoint inspection.
 5. SmolLM2-135M from-scratch architecture experiment.
-6. Optional Gemma vocabulary experiment with Liger validation.
+6. Optional Gemma vocabulary experiment.
 7. Implement generic checkpoint loading and full-parameter SFT.
 8. Full fine-tune an Alien Ink GPT-2, NeoX/Pythia, or SmolLM2 checkpoint.
 9. Full fine-tune Qwen2.5-0.5B only if measured VRAM permits it.
