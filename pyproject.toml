@@ -25,7 +25,10 @@ classifiers = [
 
 dependencies = [
     'python-dotenv>=1.0',
-    'torch>=2.0',
+    # Transformers 5 requires PyTorch >=2.4. Keep the runtime floor aligned
+    # with the current supported Trainer/model stack rather than allowing a
+    # resolver to install an unusable combination.
+    'torch>=2.4',
 ]
 
 [project.urls]
@@ -39,8 +42,14 @@ wb = [
 hf = [
     "accelerate>=1.1.0",
     "datasets>=2.14",
-    "transformers>=4.40",
+    "transformers>=4.46",
     "wandb>=0.16",
+]
+
+# Optional RTX/CUDA acceleration for Gemma. Liger's fused linear cross-entropy
+# avoids materializing the full 256k-vocabulary logits tensor during training.
+liger = [
+    "liger-kernel>=0.5",
 ]
 
 examples = [
@@ -74,4 +83,3 @@ include = [
 
 [tool.hatch.build.targets.wheel]
 packages = ["alien_ink"]
-

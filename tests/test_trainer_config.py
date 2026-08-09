@@ -140,6 +140,7 @@ def test_build_training_arguments_speed_knobs(monkeypatch, tmp_path: Path):
         dataloader_persistent_workers=True,
         tf32=True,
         torch_compile=True,
+        use_liger_kernel=True,
         optim="adamw_torch_fused",
         gradient_checkpointing=False,
     )
@@ -149,6 +150,7 @@ def test_build_training_arguments_speed_knobs(monkeypatch, tmp_path: Path):
     assert args.dataloader_persistent_workers is True
     assert args.tf32 is True
     assert args.torch_compile is True
+    assert args.use_liger_kernel is True
     assert args.optim == "adamw_torch_fused"
     assert args.gradient_checkpointing is False
 

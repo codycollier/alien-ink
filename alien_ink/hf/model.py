@@ -29,6 +29,7 @@ from alien_ink.com.log import detail, get_logger, step
 log = get_logger("hf.model")
 
 ModelFamily = Literal["gpt-2", "gpt-neox", "gemma"]
+AttentionImplementation = Literal["eager", "sdpa"]
 
 # Mist / RTX 3070 (~8 GB) friendly defaults for from-scratch pretraining.
 _MIST_GPT2 = dict(n_positions=1024, n_embd=768, n_layer=12, n_head=12)
@@ -59,6 +60,10 @@ class CausalLmArchConfig:
     n_head: int = 12
     head_dim: int | None = None
     intermediate_size: int | None = None
+    # SDPA dispatches to PyTorch's fused Flash / memory-efficient kernels when
+    # the GPU, dtype, and shape permit it (including the RTX 3070).  ``eager``
+    # remains available as a compatibility escape hatch.
+    attention_implementation: AttentionImplementation = "sdpa"
     use_cache: bool = False
 
     def validate(self) -> None:
@@ -84,6 +89,11 @@ class CausalLmArchConfig:
             raise ValueError(
                 "intermediate_size must be >= 1 when set, "
                 f"got {self.intermediate_size}"
+            )
+        if self.attention_implementation not in {"eager", "sdpa"}:
+            raise ValueError(
+                "attention_implementation must be 'eager' or 'sdpa', got "
+                f"{self.attention_implementation!r}"
             )
 
 
@@ -146,6 +156,7 @@ def build_model_from_scratch(
             n_embd=arch.n_embd,
             n_layer=arch.n_layer,
             n_head=arch.n_head,
+            attn_implementation=arch.attention_implementation,
         )
         model: PreTrainedModel = GPT2LMHeadModel(model_config)
     elif arch.family == "gpt-neox":
@@ -157,6 +168,7 @@ def build_model_from_scratch(
             num_hidden_layers=arch.n_layer,
             num_attention_heads=arch.n_head,
             intermediate_size=intermediate,
+            attn_implementation=arch.attention_implementation,
         )
         model = GPTNeoXForCausalLM(model_config)
     elif arch.family == "gemma":
@@ -173,6 +185,7 @@ def build_model_from_scratch(
             num_key_value_heads=arch.n_head,
             head_dim=head_dim,
             intermediate_size=intermediate,
+            attn_implementation=arch.attention_implementation,
         )
         model = GemmaForCausalLM(model_config)
     else:

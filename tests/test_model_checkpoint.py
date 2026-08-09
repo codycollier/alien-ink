@@ -51,6 +51,12 @@ def test_arch_validate_ok():
     CausalLmArchConfig().validate()
 
 
+def test_arch_defaults_to_sdpa_and_validates_attention_backend():
+    assert CausalLmArchConfig().attention_implementation == "sdpa"
+    with pytest.raises(ValueError, match="attention_implementation"):
+        CausalLmArchConfig(attention_implementation="flash_attention_2").validate()  # type: ignore[arg-type]
+
+
 def test_arch_families():
     from alien_ink.hf.model import gemma_arch, gpt2_arch, gpt_neox_arch
 
@@ -88,3 +94,4 @@ def test_gemma_sets_num_key_value_heads(monkeypatch):
     model = build_model_from_scratch(_FakeTok(), gemma_arch(n_layer=1), verbose=False)
     assert model.config.num_attention_heads == 8
     assert model.config.num_key_value_heads == 8
+    assert model.config._attn_implementation == "sdpa"
