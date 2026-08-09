@@ -75,6 +75,7 @@ MANIFEST = Manifest(
         gradient_checkpointing=True,
         tf32=True,
         torch_compile=True,
+        use_liger_kernel=True,
         optim="adamw_torch_fused",
     ),
     wandb=WandbConfig(
