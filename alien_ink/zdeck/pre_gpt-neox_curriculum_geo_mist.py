@@ -1,11 +1,14 @@
 #!/usr/bin/env python
 """Pretrain Mist-sized GPT-NeoX on a curriculum: 5k C4 then geo-us-states.
 
-First curriculum run: 5,000 steps of streamed C4 English followed by 100
-steps over the complete ``codycollier/geo-us-states`` corpus (56 long
-documents, one per US state/territory). One continuous run — single LR
-schedule, single W&B run — with the phase switch landing exactly on the
-step-5,000 checkpoint.
+Matched followup for ``pre_gpt-neox_c4_5k_mist``: same architecture, hardware,
+C4 config, and seeds, plus 100 steps of ``codycollier/geo-us-states`` after
+the shared 5,000-step C4 phase. One continuous run — single LR schedule,
+single W&B run — with the phase switch landing exactly on the step-5,000
+checkpoint.
+
+Phase 1 is 5,000 steps of streamed C4 English; phase 2 is 100 steps over the
+complete geo-us-states corpus (56 long documents, one per US state/territory).
 
 Phase math (mist hardware: batch 4 x accum 8 = 32 blocks/step): geo yields
 ~880 train blocks (52 rows after the 4-row eval hold-out, ~17 blocks each),
