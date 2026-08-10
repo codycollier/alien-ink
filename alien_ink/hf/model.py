@@ -1,8 +1,12 @@
 """Causal-LM construction and checkpoint loading via Hugging Face Transformers.
 
-Supports from-scratch GPT-2, GPT-NeoX, and Gemma architectures sized for a
-local ~8 GB GPU. Add a new ``family`` branch in ``build_model_from_scratch`` to
-extend.
+Supports from-scratch GPT-2, GPT-NeoX, Pythia, Gemma, and Llama-style
+(SmolLM2) architectures sized for a local ~8 GB GPU. Add a new ``family``
+branch in ``build_model_from_scratch`` to extend.
+
+Off-the-shelf pretrained checkpoints (for fine-tuning) load generically via
+:class:`PretrainedLmConfig` + :func:`load_hub_model_and_tokenizer` — no
+per-family branch.
 """
 
 from __future__ import annotations
@@ -12,6 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 from transformers import (
+    AutoModelForCausalLM,
     AutoTokenizer,
     GemmaConfig,
     GemmaForCausalLM,
@@ -19,6 +24,8 @@ from transformers import (
     GPT2LMHeadModel,
     GPTNeoXConfig,
     GPTNeoXForCausalLM,
+    LlamaConfig,
+    LlamaForCausalLM,
     PreTrainedModel,
     PreTrainedTokenizerBase,
 )
@@ -28,8 +35,18 @@ from alien_ink.com.log import detail, get_logger, step
 
 log = get_logger("hf.model")
 
-ModelFamily = Literal["gpt-2", "gpt-neox", "gemma"]
+ModelFamily = Literal["gpt-2", "gpt-neox", "pythia", "gemma", "llama"]
 AttentionImplementation = Literal["eager", "sdpa"]
+
+_VALID_FAMILIES: frozenset[str] = frozenset(
+    {"gpt-2", "gpt-neox", "pythia", "gemma", "llama"}
+)
+# Families that use partial rotary embeddings (NeoX-style rotary_pct).
+_ROTARY_PCT_FAMILIES: frozenset[str] = frozenset({"gpt-neox", "pythia"})
+# Families whose HF config supports grouped-query attention.
+_GQA_FAMILIES: frozenset[str] = frozenset({"gemma", "llama"})
+# Families whose HF config has no hidden-dropout knob.
+_NO_HIDDEN_DROPOUT_FAMILIES: frozenset[str] = frozenset({"gemma", "llama"})
 
 # Mist / RTX 3070 (~8 GB) friendly defaults for from-scratch pretraining.
 _MIST_GPT2 = dict(n_positions=1024, n_embd=768, n_layer=12, n_head=12)
@@ -44,6 +61,53 @@ _MIST_GPT_NEOX = dict(
     rope_theta=10_000.0,
     rotary_pct=0.25,
     tie_word_embeddings=False,
+)
+# Pythia matches the published EleutherAI configs (GPT-NeoX architecture with
+# parallel residual, partial rotary, untied embeddings). See the Pythia model
+# cards; n_positions=2048 matches the suite (rotary — no positional table cost).
+_PYTHIA_70M = dict(
+    n_positions=2048,
+    n_embd=512,
+    n_layer=6,
+    n_head=8,
+    intermediate_size=2048,
+    hidden_act="gelu",
+    hidden_dropout=0.0,
+    attention_dropout=0.0,
+    rope_theta=10_000.0,
+    rotary_pct=0.25,
+    tie_word_embeddings=False,
+)
+_PYTHIA_160M = dict(
+    n_positions=2048,
+    n_embd=768,
+    n_layer=12,
+    n_head=12,
+    intermediate_size=3072,
+    hidden_act="gelu",
+    hidden_dropout=0.0,
+    attention_dropout=0.0,
+    rope_theta=10_000.0,
+    rotary_pct=0.25,
+    tie_word_embeddings=False,
+)
+# SmolLM2-135M shape (Llama architecture: RoPE, SwiGLU, RMSNorm, GQA, tied
+# embeddings). n_positions capped at 2048 for Mist (SmolLM2 ships 8192).
+_SMOLLM2_135M = dict(
+    n_positions=2048,
+    n_embd=576,
+    n_layer=30,
+    n_head=9,
+    head_dim=64,
+    intermediate_size=1536,
+    hidden_act="silu",
+    hidden_dropout=0.0,
+    attention_dropout=0.0,
+    norm_epsilon=1e-5,
+    initializer_range=0.041666666666666664,
+    rope_theta=100_000.0,
+    tie_word_embeddings=True,
+    num_key_value_heads=3,
 )
 _MIST_GEMMA = dict(
     n_positions=1024,
@@ -94,9 +158,10 @@ class CausalLmArchConfig:
     use_cache: bool = False
 
     def validate(self) -> None:
-        if self.family not in {"gpt-2", "gpt-neox", "gemma"}:
+        if self.family not in _VALID_FAMILIES:
             raise ValueError(
-                f"family must be one of gpt-2, gpt-neox, gemma; got {self.family!r}"
+                f"family must be one of {sorted(_VALID_FAMILIES)}; "
+                f"got {self.family!r}"
             )
         if self.n_positions < 1:
             raise ValueError(f"n_positions must be >= 1, got {self.n_positions}")
@@ -140,11 +205,17 @@ class CausalLmArchConfig:
             raise ValueError(f"rope_theta must be > 0 when set, got {self.rope_theta}")
         if self.rotary_pct is not None and not 0.0 < self.rotary_pct <= 1.0:
             raise ValueError(f"rotary_pct must be in (0, 1], got {self.rotary_pct}")
-        if self.family != "gpt-neox" and self.rotary_pct is not None:
-            raise ValueError("rotary_pct is only supported for gpt-neox")
+        if self.family not in _ROTARY_PCT_FAMILIES and self.rotary_pct is not None:
+            raise ValueError(
+                "rotary_pct is only supported for "
+                f"{sorted(_ROTARY_PCT_FAMILIES)}"
+            )
         if self.num_key_value_heads is not None:
-            if self.family != "gemma":
-                raise ValueError("num_key_value_heads is only supported for gemma")
+            if self.family not in _GQA_FAMILIES:
+                raise ValueError(
+                    "num_key_value_heads is only supported for "
+                    f"{sorted(_GQA_FAMILIES)}"
+                )
             if self.num_key_value_heads < 1:
                 raise ValueError(
                     "num_key_value_heads must be >= 1 when set, "
@@ -155,8 +226,13 @@ class CausalLmArchConfig:
                     f"n_head ({self.n_head}) must be divisible by "
                     f"num_key_value_heads ({self.num_key_value_heads})"
                 )
-        if self.family == "gemma" and self.hidden_dropout != 0.0:
-            raise ValueError("gemma does not support hidden_dropout; use 0.0")
+        if (
+            self.family in _NO_HIDDEN_DROPOUT_FAMILIES
+            and self.hidden_dropout != 0.0
+        ):
+            raise ValueError(
+                f"{self.family} does not support hidden_dropout; use 0.0"
+            )
         if self.attention_implementation not in {"eager", "sdpa"}:
             raise ValueError(
                 "attention_implementation must be 'eager' or 'sdpa', got "
@@ -179,6 +255,35 @@ def gpt_neox_arch(**overrides) -> CausalLmArchConfig:
         family="gpt-neox",
         tokenizer_name=overrides.pop("tokenizer_name", "EleutherAI/gpt-neox-20b"),
         **{**_MIST_GPT_NEOX, **overrides},
+    )
+
+
+def pythia_70m_arch(**overrides) -> CausalLmArchConfig:
+    """Pythia-70M-shaped from-scratch config (fast-iteration reference)."""
+    return CausalLmArchConfig(
+        family="pythia",
+        tokenizer_name=overrides.pop("tokenizer_name", "EleutherAI/pythia-70m"),
+        **{**_PYTHIA_70M, **overrides},
+    )
+
+
+def pythia_160m_arch(**overrides) -> CausalLmArchConfig:
+    """Pythia-160M-shaped from-scratch config (NeoX-scale comparison)."""
+    return CausalLmArchConfig(
+        family="pythia",
+        tokenizer_name=overrides.pop("tokenizer_name", "EleutherAI/pythia-160m"),
+        **{**_PYTHIA_160M, **overrides},
+    )
+
+
+def smollm2_135m_arch(**overrides) -> CausalLmArchConfig:
+    """SmolLM2-135M-shaped Llama-style from-scratch config."""
+    return CausalLmArchConfig(
+        family="llama",
+        tokenizer_name=overrides.pop(
+            "tokenizer_name", "HuggingFaceTB/SmolLM2-135M"
+        ),
+        **{**_SMOLLM2_135M, **overrides},
     )
 
 
@@ -241,7 +346,9 @@ def build_model_from_scratch(
             **special_token_ids,
         )
         model: PreTrainedModel = GPT2LMHeadModel(model_config)
-    elif arch.family == "gpt-neox":
+    elif arch.family in {"gpt-neox", "pythia"}:
+        # Pythia is the GPT-NeoX architecture (parallel residual, partial
+        # rotary) with published sizes; it shares the NeoX config mapping.
         intermediate = arch.intermediate_size or (4 * arch.n_embd)
         model_config = GPTNeoXConfig(
             vocab_size=vocab_size,
@@ -263,6 +370,28 @@ def build_model_from_scratch(
             **special_token_ids,
         )
         model = GPTNeoXForCausalLM(model_config)
+    elif arch.family == "llama":
+        intermediate = arch.intermediate_size or (4 * arch.n_embd)
+        model_config = LlamaConfig(
+            vocab_size=vocab_size,
+            max_position_embeddings=arch.n_positions,
+            hidden_size=arch.n_embd,
+            num_hidden_layers=arch.n_layer,
+            num_attention_heads=arch.n_head,
+            num_key_value_heads=arch.num_key_value_heads or arch.n_head,
+            head_dim=arch.head_dim,
+            intermediate_size=intermediate,
+            hidden_act=arch.hidden_act,
+            attention_dropout=arch.attention_dropout,
+            rms_norm_eps=arch.norm_epsilon,
+            initializer_range=arch.initializer_range,
+            rope_theta=arch.rope_theta or 10_000.0,
+            tie_word_embeddings=arch.tie_word_embeddings,
+            attn_implementation=arch.attention_implementation,
+            use_cache=arch.use_cache,
+            **special_token_ids,
+        )
+        model = LlamaForCausalLM(model_config)
     elif arch.family == "gemma":
         head_dim = arch.head_dim or (arch.n_embd // arch.n_head)
         intermediate = arch.intermediate_size or (4 * arch.n_embd)
@@ -366,12 +495,99 @@ def load_pretrained_model(
     tokenizer = load_tokenizer(model_path)
     if family == "gpt-2":
         model: PreTrainedModel = GPT2LMHeadModel.from_pretrained(model_path)
-    elif family == "gpt-neox":
+    elif family in {"gpt-neox", "pythia"}:
         model = GPTNeoXForCausalLM.from_pretrained(model_path)
+    elif family == "llama":
+        model = LlamaForCausalLM.from_pretrained(model_path)
     elif family == "gemma":
         model = GemmaForCausalLM.from_pretrained(model_path)
     else:
         raise ValueError(f"unsupported family: {family!r}")
     move_module_to_device(model, device)
     model.eval()
+    return model, tokenizer
+
+
+@dataclass(frozen=True)
+class PretrainedLmConfig:
+    """Identity of an off-the-shelf pretrained causal LM for fine-tuning.
+
+    ``model_name`` is a Hub id (e.g. ``EleutherAI/pythia-160m``) or a local
+    checkpoint path (e.g. an Alien Ink ``output/<run>`` directory). Loading
+    goes through ``AutoModelForCausalLM`` and the model's serialized config —
+    no per-family architecture branch — so Pythia, SmolLM2, Qwen, and Alien
+    Ink checkpoints all load the same way.
+    """
+
+    model_name: str
+    # None => tokenizer ships with the model (the usual case).
+    tokenizer_name: str | None = None
+    attention_implementation: AttentionImplementation = "sdpa"
+    use_cache: bool = False
+    trust_remote_code: bool = False
+
+    def resolved_tokenizer_name(self) -> str:
+        return self.tokenizer_name or self.model_name
+
+    def validate(self) -> None:
+        if not self.model_name.strip():
+            raise ValueError("model_name must be a non-empty string")
+        if self.tokenizer_name is not None and not self.tokenizer_name.strip():
+            raise ValueError("tokenizer_name must be non-empty when set")
+        if self.attention_implementation not in {"eager", "sdpa"}:
+            raise ValueError(
+                "attention_implementation must be 'eager' or 'sdpa', got "
+                f"{self.attention_implementation!r}"
+            )
+
+
+def model_max_positions(model: PreTrainedModel) -> int:
+    """Context window of a loaded model (0 when the config does not say)."""
+    config = model.config
+    n_positions = getattr(config, "n_positions", None) or getattr(
+        config, "max_position_embeddings", None
+    )
+    return int(n_positions or 0)
+
+
+def load_hub_model_and_tokenizer(
+    config: PretrainedLmConfig,
+    *,
+    verbose: bool = True,
+) -> tuple[PreTrainedModel, PreTrainedTokenizerBase]:
+    """Load a pretrained causal LM + tokenizer for fine-tuning.
+
+    Uses ``AutoModelForCausalLM`` so any Hub model (or local checkpoint) with
+    a serialized config loads without a family branch. Embeddings are resized
+    only when the tokenizer outgrows the checkpoint's embedding table.
+    """
+    config.validate()
+    if verbose:
+        step(f"Loading tokenizer ({config.resolved_tokenizer_name()})...", logger=log)
+    tokenizer = load_tokenizer(config.resolved_tokenizer_name())
+    if verbose:
+        step(f"Loading pretrained model ({config.model_name})...", logger=log)
+    model = AutoModelForCausalLM.from_pretrained(
+        config.model_name,
+        attn_implementation=config.attention_implementation,
+        trust_remote_code=config.trust_remote_code,
+    )
+    # Incompatible with gradient checkpointing and unused during training.
+    model.config.use_cache = config.use_cache
+    if model.config.pad_token_id is None:
+        model.config.pad_token_id = tokenizer.pad_token_id
+
+    n_tokens = len(tokenizer) if hasattr(tokenizer, "__len__") else tokenizer.vocab_size
+    embedding_rows = model.get_input_embeddings().weight.shape[0]
+    if n_tokens > embedding_rows:
+        detail(
+            f"resizing embeddings {embedding_rows:,} -> {n_tokens:,} "
+            "to fit tokenizer",
+            logger=log,
+        )
+        model.resize_token_embeddings(n_tokens)
+
+    if verbose:
+        param_count = sum(p.numel() for p in model.parameters())
+        detail(f"parameters: {param_count:,}", logger=log)
     return model, tokenizer

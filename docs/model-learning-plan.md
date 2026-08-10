@@ -15,13 +15,21 @@ models on an 8 GB GPU.
 
 ## Current repository baseline
 
-Alien Ink currently implements three from-scratch families:
+Alien Ink currently implements five from-scratch families:
 
 | Family | Size | Role | Recommendation |
 |---|---:|---|---|
 | GPT-2 | ~124M | Simple, cheap, well-understood baseline | Keep as the debugging and throughput baseline |
 | GPT-NeoX | ~163M | RoPE-based modern architecture comparison | Keep; it is the best current comparison to GPT-2 |
+| Pythia | 70M / 160M | NeoX architecture at published EleutherAI shapes; reference suite | Implemented (A1): `pythia_70m_arch` / `pythia_160m_arch` + WikiText zdecks |
+| Llama (SmolLM2-135M) | ~135M | Modern compact Llama block (RoPE, SwiGLU, RMSNorm, GQA) | Implemented (A2): `smollm2_135m_arch` + WikiText zdeck |
 | Mist-sized Gemma | ~165M | Modern block and large SentencePiece vocabulary experiment | Keep as an optional experiment, not the main English model |
+
+Full-parameter fine-tuning of pretrained checkpoints (Track B0) is also
+implemented: `Manifest.train()` with `stage="sft"` loads any Hub model or
+local checkpoint via `PretrainedLmConfig` + `AutoModelForCausalLM`
+(`alien_ink.hf.sft`). Checked-in SFT zdecks fine-tune `EleutherAI/pythia-160m`
+and `HuggingFaceTB/SmolLM2-135M` on geo-us-states.
 
 The family definitions live in [`alien_ink/hf/model.py`](../alien_ink/hf/model.py),
 and the architecture comparison is documented in
@@ -115,24 +123,24 @@ tokenizer.
 
 ## Track B: full-parameter fine-tuning
 
-Alien Ink currently has the `sft` manifest stage as a reserved concept, but
-`Manifest.train()` does not implement it yet. Complete the fine-tuning runtime
-before adding many pretrained models. The first implementation should support
-ordinary full-parameter SFT, without quantization or adapters, so the training
-mechanics remain visible and easy to debug.
+The `sft` manifest stage is implemented as ordinary full-parameter
+fine-tuning (`alien_ink.hf.sft.finetune`), without quantization or adapters,
+so the training mechanics remain visible and easy to debug. The current data
+path reuses pretraining's packed causal-LM blocks; chat-template formatting
+and prompt/completion label masking remain future work below.
 
 ### B0. Implement full-parameter SFT
 
 Add the following in small, composable pieces:
 
-- generic `AutoModelForCausalLM` checkpoint loading;
-- model/tokenizer metadata recorded in the manifest;
+- generic `AutoModelForCausalLM` checkpoint loading; **(done: `PretrainedLmConfig`)**
+- model/tokenizer metadata recorded in the manifest; **(done)**
 - supervised dataset formatting and chat-template support;
 - labels masking for prompt versus completion tokens;
-- evaluation and generation against a fixed held-out set;
-- full-parameter checkpoint saving and resume;
-- a small SFT zdeck with an explicit `stage="sft"`;
-- clear reporting of total and trainable parameter counts.
+- evaluation and generation against a fixed held-out set; **(done: shared eval path)**
+- full-parameter checkpoint saving and resume; **(done)**
+- a small SFT zdeck with an explicit `stage="sft"`; **(done: `sft_pythia-160m_geo_mist`, `sft_smollm2-135m_geo_mist`)**
+- clear reporting of total and trainable parameter counts. **(done)**
 
 Do not make the fine-tuning path depend on the three hard-coded architecture
 branches used by the current from-scratch loader. Model families such as Qwen

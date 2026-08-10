@@ -21,8 +21,9 @@ _VALID_STAGES: frozenset[str] = frozenset({"pre", "sft"})
 
 from alien_ink.hf.curriculum import Curriculum
 from alien_ink.hf.ds import PretrainDataConfig
-from alien_ink.hf.model import CausalLmArchConfig, gpt2_arch
+from alien_ink.hf.model import CausalLmArchConfig, PretrainedLmConfig, gpt2_arch
 from alien_ink.hf.pretrain import PretrainConfig, pretrain
+from alien_ink.hf.sft import SftConfig, finetune
 from alien_ink.hf.trainer import CausalLmTrainerConfig
 from alien_ink.com.log import get_logger
 from alien_ink.com.wb import require_wandb_identity
@@ -283,12 +284,19 @@ class Manifest:
     fine-tuning (``sft``). Zdeck filenames mirror ``run_name`` (underscores vs
     hyphens), e.g. ``pre_gemma_c4_5k_mist.py`` / ``pre-gemma-c4-5k-mist``.
 
+    ``model`` pairs with the stage: ``pre`` takes a
+    :class:`~alien_ink.hf.model.CausalLmArchConfig` (random init), ``sft``
+    takes a :class:`~alien_ink.hf.model.PretrainedLmConfig` (Hub id or local
+    checkpoint loaded via ``AutoModelForCausalLM``).
+
     ``data`` is a single corpus or a
     :class:`~alien_ink.hf.curriculum.Curriculum` of sequenced corpora; with a
     curriculum, ``schedule.max_steps`` must equal ``curriculum.total_steps()``.
+    Curricula are pretraining-only.
 
     Materializes a :class:`~alien_ink.hf.pretrain.PretrainConfig` via
-    :meth:`to_pretrain_config`. Compose ablations with :meth:`variant`,
+    :meth:`to_pretrain_config` or an :class:`~alien_ink.hf.sft.SftConfig` via
+    :meth:`to_sft_config`. Compose ablations with :meth:`variant`,
     :meth:`with_hardware`, :meth:`with_data`, :meth:`with_model`,
     :meth:`with_wandb`, and :meth:`with_schedule` instead of cloning modules.
     """
@@ -297,7 +305,7 @@ class Manifest:
     title: str
     data: PretrainDataConfig | Curriculum
     stage: ManifestStage = "pre"
-    model: CausalLmArchConfig = field(default_factory=gpt2_arch)
+    model: CausalLmArchConfig | PretrainedLmConfig = field(default_factory=gpt2_arch)
     hardware: HardwareConfig = field(default_factory=mist_rtx_3070)
     wandb: WandbConfig = field(default_factory=WandbConfig)
     schedule: ScheduleConfig = field(default_factory=ScheduleConfig)
@@ -339,9 +347,15 @@ class Manifest:
         return Path.cwd() / "output" / self.run_name
 
     def gen_config(self, **overrides):
-        """Family-aware generation config derived from ``self.model.family``."""
-        from alien_ink.hf.gen import gen_config_for_family
+        """Family-aware generation config derived from ``self.model``.
 
+        Pretrained hub models keep the plain-text defaults; from-scratch
+        architectures dispatch on ``model.family``.
+        """
+        from alien_ink.hf.gen import GenConfig, gen_config_for_family
+
+        if isinstance(self.model, PretrainedLmConfig):
+            return GenConfig(**overrides)
         return gen_config_for_family(self.model.family, **overrides)
 
     def validate(self) -> None:
@@ -353,12 +367,30 @@ class Manifest:
             raise ValueError(
                 f"stage must be one of {sorted(_VALID_STAGES)}, got {self.stage!r}"
             )
+        if self.stage == "pre" and not isinstance(self.model, CausalLmArchConfig):
+            raise ValueError(
+                "stage='pre' requires a CausalLmArchConfig model, got "
+                f"{type(self.model).__name__}"
+            )
+        if self.stage == "sft":
+            if not isinstance(self.model, PretrainedLmConfig):
+                raise ValueError(
+                    "stage='sft' requires a PretrainedLmConfig model, got "
+                    f"{type(self.model).__name__}"
+                )
+            if isinstance(self.data, Curriculum):
+                raise ValueError(
+                    "stage='sft' takes a single corpus, not a Curriculum"
+                )
         self.data.validate()
         self.model.validate()
         self.hardware.validate()
         self.wandb.validate()
         self.schedule.validate()
-        if self.data.block_size > self.model.n_positions:
+        if (
+            isinstance(self.model, CausalLmArchConfig)
+            and self.data.block_size > self.model.n_positions
+        ):
             raise ValueError(
                 f"data.block_size ({self.data.block_size}) cannot exceed "
                 f"model.n_positions ({self.model.n_positions})"
@@ -402,11 +434,10 @@ class Manifest:
                 save_steps,
             )
 
-    def to_pretrain_config(self) -> PretrainConfig:
-        """Materialize the runtime :class:`PretrainConfig` this manifest describes."""
-        self.validate()
+    def _trainer_config(self) -> CausalLmTrainerConfig:
+        """Materialize the trainer config shared by both stages."""
         cadence = self.schedule.cadence()
-        trainer = CausalLmTrainerConfig(
+        return CausalLmTrainerConfig(
             output_dir=self.output_dir(),
             run_name=self.wandb.resolved_name(self.run_name),
             max_steps=self.schedule.max_steps,
@@ -439,28 +470,45 @@ class Manifest:
             report_to="wandb" if self.wandb.enabled else "none",
             **dict(self.trainer_overrides),
         )
-        cfg = PretrainConfig(data=self.data, arch=self.model, trainer=trainer)
+
+    def to_pretrain_config(self) -> PretrainConfig:
+        """Materialize the runtime :class:`PretrainConfig` this manifest describes."""
+        if self.stage != "pre":
+            raise ValueError(
+                f"to_pretrain_config requires stage='pre', got {self.stage!r}"
+            )
+        self.validate()
+        cfg = PretrainConfig(
+            data=self.data, arch=self.model, trainer=self._trainer_config()
+        )
         cfg.validate()
         return cfg
 
-    def train(self, **pretrain_kwargs: Any):
+    def to_sft_config(self) -> SftConfig:
+        """Materialize the runtime :class:`SftConfig` this manifest describes."""
+        if self.stage != "sft":
+            raise ValueError(
+                f"to_sft_config requires stage='sft', got {self.stage!r}"
+            )
+        self.validate()
+        cfg = SftConfig(
+            data=self.data, model=self.model, trainer=self._trainer_config()
+        )
+        cfg.validate()
+        return cfg
+
+    def train(self, **stage_kwargs: Any):
         """Run training from this manifest.
 
         ``stage="pre"`` materializes a pretrain config and calls
-        :func:`~alien_ink.hf.pretrain.pretrain`. ``stage="sft"`` is reserved
-        and not implemented yet.
+        :func:`~alien_ink.hf.pretrain.pretrain`. ``stage="sft"`` materializes
+        an SFT config and calls :func:`~alien_ink.hf.sft.finetune`.
 
         Extra kwargs are forwarded to the stage entrypoint
         (e.g. ``resume_from_checkpoint``, ``run_label``, ``env_files``).
         """
-        if self.stage == "sft":
-            raise NotImplementedError(
-                "Manifest.train() does not support stage='sft' yet"
-            )
-        config = self.to_pretrain_config()
-        run_label = pretrain_kwargs.pop("run_label", "zdeck")
-        return pretrain(
-            config,
+        run_label = stage_kwargs.pop("run_label", "zdeck")
+        shared_kwargs: dict[str, Any] = dict(
             title=self.title,
             run_label=run_label,
             wandb_entity=self.wandb.entity,
@@ -473,5 +521,8 @@ class Manifest:
                 "schedule": self.schedule,
                 "wandb": self.wandb,
             },
-            **pretrain_kwargs,
+            **stage_kwargs,
         )
+        if self.stage == "sft":
+            return finetune(self.to_sft_config(), **shared_kwargs)
+        return pretrain(self.to_pretrain_config(), **shared_kwargs)

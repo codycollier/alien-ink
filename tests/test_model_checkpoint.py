@@ -81,6 +81,112 @@ def test_arch_families():
     gemma.validate()
 
 
+def test_pythia_factories_match_published_shapes():
+    from alien_ink.hf.model import pythia_70m_arch, pythia_160m_arch
+
+    p70 = pythia_70m_arch()
+    assert p70.family == "pythia"
+    assert p70.tokenizer_name == "EleutherAI/pythia-70m"
+    assert (p70.n_layer, p70.n_embd, p70.n_head) == (6, 512, 8)
+    assert p70.intermediate_size == 2048
+    assert p70.rotary_pct == 0.25
+    assert p70.tie_word_embeddings is False
+    p70.validate()
+
+    p160 = pythia_160m_arch()
+    assert p160.family == "pythia"
+    assert p160.tokenizer_name == "EleutherAI/pythia-160m"
+    assert (p160.n_layer, p160.n_embd, p160.n_head) == (12, 768, 12)
+    assert p160.intermediate_size == 3072
+    p160.validate()
+
+
+def test_smollm2_factory_matches_published_shape():
+    from alien_ink.hf.model import smollm2_135m_arch
+
+    arch = smollm2_135m_arch()
+    assert arch.family == "llama"
+    assert arch.tokenizer_name == "HuggingFaceTB/SmolLM2-135M"
+    assert (arch.n_layer, arch.n_embd, arch.n_head) == (30, 576, 9)
+    assert arch.head_dim == 64
+    assert arch.intermediate_size == 1536
+    assert arch.num_key_value_heads == 3
+    assert arch.hidden_act == "silu"
+    assert arch.tie_word_embeddings is True
+    arch.validate()
+
+
+def test_arch_validates_family_specific_fields():
+    from alien_ink.hf.model import pythia_160m_arch, smollm2_135m_arch
+
+    # rotary_pct is a NeoX/Pythia concept.
+    with pytest.raises(ValueError, match="rotary_pct"):
+        smollm2_135m_arch(rotary_pct=0.25).validate()
+    # GQA is a Gemma/Llama concept.
+    with pytest.raises(ValueError, match="num_key_value_heads"):
+        pythia_160m_arch(num_key_value_heads=4).validate()
+    # LlamaConfig has no hidden-dropout knob.
+    with pytest.raises(ValueError, match="hidden_dropout"):
+        smollm2_135m_arch(hidden_dropout=0.1).validate()
+
+
+def test_pythia_builds_on_gpt_neox(monkeypatch):
+    from alien_ink.hf import model as model_mod
+    from alien_ink.hf.model import build_model_from_scratch, pythia_70m_arch
+
+    class _FakeTok:
+        vocab_size = 256
+        bos_token_id = 1
+        eos_token_id = 2
+        pad_token_id = 2
+
+        def __len__(self) -> int:
+            return 256
+
+    class _FakeModel:
+        def __init__(self, config):
+            self.config = config
+
+    monkeypatch.setattr(model_mod, "GPTNeoXForCausalLM", _FakeModel)
+    model = build_model_from_scratch(_FakeTok(), pythia_70m_arch(), verbose=False)
+    assert model.config.hidden_size == 512
+    assert model.config.num_hidden_layers == 6
+    assert model.config.intermediate_size == 2048
+    assert model.config.tie_word_embeddings is False
+    assert model.config.max_position_embeddings == 2048
+
+
+def test_llama_family_fields_are_mapped_explicitly(monkeypatch):
+    from alien_ink.hf import model as model_mod
+    from alien_ink.hf.model import build_model_from_scratch, smollm2_135m_arch
+
+    class _FakeTok:
+        vocab_size = 256
+        bos_token_id = 1
+        eos_token_id = 2
+        pad_token_id = 2
+
+        def __len__(self) -> int:
+            return 256
+
+    class _FakeModel:
+        def __init__(self, config):
+            self.config = config
+
+    monkeypatch.setattr(model_mod, "LlamaForCausalLM", _FakeModel)
+    model = build_model_from_scratch(_FakeTok(), smollm2_135m_arch(), verbose=False)
+    assert model.config.hidden_size == 576
+    assert model.config.num_hidden_layers == 30
+    assert model.config.num_attention_heads == 9
+    assert model.config.num_key_value_heads == 3
+    assert model.config.head_dim == 64
+    assert model.config.intermediate_size == 1536
+    assert model.config.hidden_act == "silu"
+    assert model.config.rms_norm_eps == 1e-5
+    assert model.config.tie_word_embeddings is True
+    assert model.config._attn_implementation == "sdpa"
+
+
 def test_gemma_sets_num_key_value_heads(monkeypatch):
     """GemmaConfig defaults kv heads to 16; mist-sized builds must override."""
     from transformers import GemmaConfig

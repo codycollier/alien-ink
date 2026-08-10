@@ -12,7 +12,7 @@ import pytest
 pytest.importorskip("transformers")
 
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
-from alien_ink.hf.model import gpt2_arch  # noqa: E402
+from alien_ink.hf.model import CausalLmArchConfig, PretrainedLmConfig, gpt2_arch  # noqa: E402
 from alien_ink.hf.manifest import (  # noqa: E402
     HardwareConfig,
     Manifest,
@@ -249,9 +249,56 @@ def test_manifest_stage_variant_and_validate():
         _manifest().variant(stage="rlhf").validate()  # type: ignore[arg-type]
 
 
-def test_manifest_train_sft_not_implemented():
-    with pytest.raises(NotImplementedError, match="sft"):
-        _manifest(stage="sft").train()
+def _sft_manifest(**overrides) -> Manifest:
+    base = dict(
+        stage="sft",
+        model=PretrainedLmConfig(model_name="EleutherAI/pythia-160m"),
+        schedule=ScheduleConfig(max_steps=200, warmup_steps=20, learning_rate=3e-5),
+    )
+    base.update(overrides)
+    return _manifest(**base)
+
+
+def test_manifest_sft_requires_pretrained_model():
+    with pytest.raises(ValueError, match="PretrainedLmConfig"):
+        _manifest(stage="sft").validate()
+
+
+def test_manifest_pre_rejects_pretrained_model():
+    with pytest.raises(ValueError, match="CausalLmArchConfig"):
+        _manifest(
+            model=PretrainedLmConfig(model_name="EleutherAI/pythia-160m")
+        ).validate()
+
+
+def test_manifest_to_sft_config(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    manifest = _sft_manifest()
+    cfg = manifest.to_sft_config()
+
+    assert cfg.data is manifest.data
+    assert cfg.model is manifest.model
+    assert cfg.model.model_name == "EleutherAI/pythia-160m"
+    assert cfg.trainer.output_dir == tmp_path / "output" / "test-run"
+    assert cfg.trainer.max_steps == 200
+    assert cfg.trainer.learning_rate == 3e-5
+    assert cfg.trainer.report_to == "none"
+
+
+def test_manifest_stage_config_dispatch(tmp_path: Path, monkeypatch):
+    monkeypatch.chdir(tmp_path)
+    with pytest.raises(ValueError, match="requires stage='pre'"):
+        _sft_manifest().to_pretrain_config()
+    with pytest.raises(ValueError, match="requires stage='sft'"):
+        _manifest().to_sft_config()
+
+
+def test_manifest_sft_gen_config_uses_plain_defaults():
+    from alien_ink.hf.gen import GenConfig
+
+    manifest = _sft_manifest()
+    assert manifest.gen_config() == GenConfig()
+    assert manifest.gen_config(max_new_tokens=120).max_new_tokens == 120
 
 
 def test_schedule_validates_ratio_and_cadence():
@@ -265,7 +312,7 @@ def test_schedule_validates_ratio_and_cadence():
 def test_all_zdeck_manifests_are_explicit_and_valid():
     import alien_ink.zdeck as zdeck
 
-    required_model_fields = {
+    required_arch_fields = {
         "hidden_act",
         "hidden_dropout",
         "attention_dropout",
@@ -276,6 +323,13 @@ def test_all_zdeck_manifests_are_explicit_and_valid():
         "tie_word_embeddings",
         "num_key_value_heads",
         "attention_implementation",
+    }
+    required_pretrained_fields = {
+        "model_name",
+        "tokenizer_name",
+        "attention_implementation",
+        "use_cache",
+        "trust_remote_code",
     }
     modules = [
         info.name
@@ -288,6 +342,11 @@ def test_all_zdeck_manifests_are_explicit_and_valid():
         manifest = module.MANIFEST
         manifest.validate()
         source = inspect.getsource(module)
+        if isinstance(manifest.model, CausalLmArchConfig):
+            required_model_fields = required_arch_fields
+        else:
+            assert isinstance(manifest.model, PretrainedLmConfig)
+            required_model_fields = required_pretrained_fields
         for field_name in required_model_fields:
             assert f"{field_name}=" in source, f"{name} omits {field_name}"
         assert "warmup_ratio=" in source, f"{name} omits warmup_ratio"

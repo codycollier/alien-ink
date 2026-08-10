@@ -36,9 +36,14 @@ def test_gen_config_overrides():
     assert gen.add_special_tokens is True
 
 
+def test_pythia_and_llama_gen_config_defaults():
+    assert gen_config_for_family("pythia").add_special_tokens is True
+    assert gen_config_for_family("llama").add_special_tokens is True
+
+
 def test_gen_config_unknown_family():
     with pytest.raises(ValueError, match="unsupported family"):
-        gen_config_for_family("llama")  # type: ignore[arg-type]
+        gen_config_for_family("mamba")  # type: ignore[arg-type]
 
 
 def test_chat_gen_variants_greedy_then_sampled():

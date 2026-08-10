@@ -5,8 +5,13 @@ tokenizer identity live in `CausalLmArchConfig` (`alien_ink.hf.model`). Field
 names follow the GPT-2 convention (`n_embd`, `n_layer`, …) and are mapped onto
 each Hugging Face config class.
 
-Supported families: **`gpt-2`**, **`gpt-neox`**, **`gemma`**. Defaults are sized
-for Mist (local RTX 3070, ~8 GB VRAM).
+Supported families: **`gpt-2`**, **`gpt-neox`**, **`pythia`**, **`gemma`**,
+**`llama`**. Defaults are sized for Mist (local RTX 3070, ~8 GB VRAM).
+
+Off-the-shelf **pretrained** checkpoints (for the `sft` stage) are not a
+family: they load generically through `PretrainedLmConfig` +
+`AutoModelForCausalLM`, so any Hub model with a serialized config works. See
+[Fine-tuning pretrained checkpoints](#fine-tuning-pretrained-checkpoints).
 
 ---
 
@@ -158,6 +163,90 @@ Mapped HF fields: `max_position_embeddings`, `hidden_size`,
 
 ---
 
+## Pythia (`family="pythia"`)
+
+### Role in Alien Ink
+
+Reference suite for education and research: the EleutherAI Pythia models come
+in multiple sizes with consistent data ordering and many published
+intermediate checkpoints. Pythia **is** the GPT-NeoX architecture (parallel
+residual, partial rotary, untied embeddings) at published shapes, so the
+family shares the NeoX config mapping and differs only in dimensions and
+tokenizer identity.
+
+### Shapes (published EleutherAI configs)
+
+| Field | Pythia-70M | Pythia-160M |
+|---|---:|---:|
+| `n_positions` | 2048 | 2048 |
+| `n_embd` | 512 | 768 |
+| `n_layer` | 6 | 12 |
+| `n_head` | 8 | 12 |
+| `intermediate_size` | 2048 | 3072 |
+| Factory | `pythia_70m_arch()` | `pythia_160m_arch()` |
+
+Both use `rotary_pct=0.25`, `rope_theta=10_000`, `hidden_act="gelu"`, and
+untied embeddings. Pythia-160M matches the existing NeoX Mist dims (12 × 768)
+for a direct comparison; Pythia-70M is the fast-iteration option.
+
+### Tokenizer
+
+- Names: `EleutherAI/pythia-70m` / `EleutherAI/pythia-160m` (the NeoX BPE
+  tokenizer, vocab ~50k)
+- Completion behavior matches GPT-2 / NeoX defaults (`add_special_tokens=True`)
+
+### Typical pairings
+
+| Corpus | Zdeck |
+|---|---|
+| WikiText-103 | `pre_pythia-70m_wikitext_4ep_mist` |
+| WikiText-103 | `pre_pythia-160m_wikitext_4ep_mist` |
+
+The published `EleutherAI/pythia-160m` checkpoint is also the first SFT base
+(`sft_pythia-160m_geo_mist`).
+
+---
+
+## Llama / SmolLM2 (`family="llama"`)
+
+### Role in Alien Ink
+
+Modern compact Llama-style block (RoPE, SwiGLU, RMSNorm, GQA) using the
+published `HuggingFaceTB/SmolLM2-135M` shape and tokenizer with **random
+weights** — an architecture experiment, not the pretrained checkpoint.
+
+### Shape (SmolLM2-135M)
+
+| Field | Value |
+|---|---:|
+| `n_positions` | 2048 (Mist cap; SmolLM2 ships 8192) |
+| `n_embd` | 576 |
+| `n_layer` | 30 |
+| `n_head` | 9 (`head_dim=64`) |
+| `num_key_value_heads` | 3 (GQA) |
+| `intermediate_size` | 1536 |
+| Factory | `smollm2_135m_arch()` |
+
+Uses `hidden_act="silu"`, `rope_theta=100_000`, tied embeddings, and
+`initializer_range=1/sqrt(576)`. The 30-layer stack carries more activation
+memory than the 12-layer baselines: zdecks use microbatch 2 × accum 16.
+
+### Tokenizer
+
+- Name: `HuggingFaceTB/SmolLM2-135M` (BPE, vocab ~49k)
+- Completion behavior matches GPT-2 defaults (`add_special_tokens=True`)
+
+### Typical pairings
+
+| Corpus | Zdeck |
+|---|---|
+| WikiText-103 | `pre_smollm2-135m_wikitext_4ep_mist` |
+
+The published `HuggingFaceTB/SmolLM2-135M` checkpoint is also an SFT base
+(`sft_smollm2-135m_geo_mist`).
+
+---
+
 ## Gemma (`family="gemma"`)
 
 ### Role in Alien Ink
@@ -257,8 +346,10 @@ linearly in vocab size.
 | | WikiText-103 | Wikipedia EN | C4 EN |
 |---|---|---|---|
 | **GPT-2** | ✓ zdeck | ✓ zdeck | supported |
-| **Gemma** | supported | supported | ✓ zdeck |
-| **GPT-NeoX** | supported | supported | supported |
+| **Gemma** | ✓ zdeck | supported | ✓ zdeck |
+| **GPT-NeoX** | ✓ zdeck | supported | supported |
+| **Pythia** | ✓ zdeck | supported | supported |
+| **Llama (SmolLM2)** | ✓ zdeck | supported | supported |
 
 “Supported” means loaders + `build_model_from_scratch` + generation paths work.
 Only **zdeck** cells have a checked-in manifest.
@@ -310,6 +401,35 @@ Completions:
 gen = manifest.gen_config(max_new_tokens=120)
 # or: gen_config_for_family("gemma", max_new_tokens=120)
 ```
+
+---
+
+## Fine-tuning pretrained checkpoints
+
+The `sft` manifest stage does **full-parameter** fine-tuning of an
+off-the-shelf pretrained model (learning-plan Track B0). The model is not a
+`CausalLmArchConfig` family — it is a `PretrainedLmConfig` loaded through
+`AutoModelForCausalLM`, so any Hub model or local Alien Ink checkpoint with a
+serialized config works without a per-family branch:
+
+```python
+from alien_ink.hf.model import PretrainedLmConfig
+
+model = PretrainedLmConfig(
+    model_name="EleutherAI/pythia-160m",   # Hub id or local output/<run> path
+    tokenizer_name=None,                    # None => ships with the model
+    attention_implementation="sdpa",
+    use_cache=False,
+    trust_remote_code=False,
+)
+manifest = Manifest(..., stage="sft", model=model, ...)
+manifest.train()
+```
+
+Data preparation is shared with pretraining (packed EOS-delimited causal-LM
+blocks); `block_size` is checked against the loaded model's context window at
+train time. Checked-in SFT zdecks: `sft_pythia-160m_geo_mist`,
+`sft_smollm2-135m_geo_mist`.
 
 ---
 
