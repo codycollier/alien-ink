@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Background baseline-perf zdeck program on Mist (local RTX 3070). Logs under output/.
+# Background baseline-perf zdeck program on Mist (local RTX 3070). Logs under output/train/.
 #
 #   ./bin/baseline_perf_mist.sh
 #
@@ -8,13 +8,13 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-mkdir -p output
+mkdir -p output/train
 
 module="alien_ink.zdeck.baseline_perf_mist"
 name="baseline-perf-mist"
 
 stamp=$(date +%Y%m%d-%H%M%S)
-log="output/${name}-${stamp}.log"
+log="output/train/${name}-${stamp}.log"
 
 nohup python -m "$module" "$@" >"$log" 2>&1 &
 

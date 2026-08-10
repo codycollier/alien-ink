@@ -66,7 +66,7 @@ class SftConfig:
     )
     trainer: CausalLmTrainerConfig = field(
         default_factory=lambda: CausalLmTrainerConfig(
-            output_dir=Path.cwd() / "output" / "sft",
+            output_dir=Path.cwd() / "output" / "train" / "sft",
             run_name="sft",
         )
     )

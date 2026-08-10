@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Background pretrain zdeck program on Mist (local RTX 3070). Logs under output/.
+# Background pretrain zdeck program on Mist (local RTX 3070). Logs under output/train/.
 #
 # Uncomment one zdeck block below, then:
 #   ./bin/pretrain_mist.sh
@@ -10,7 +10,7 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-mkdir -p output
+mkdir -p output/train
 
 # --- zdeck (uncomment one) ---------------------------------------------------
 module=""
@@ -46,7 +46,7 @@ name="baseline-perf-gemma-mist"
 # ------------------------------------------------------------------------------
 
 stamp=$(date +%Y%m%d-%H%M%S)
-log="output/${name}-${stamp}.log"
+log="output/train/${name}-${stamp}.log"
 
 if [[ -n "$script" ]]; then
   nohup python "$script" "$@" >"$log" 2>&1 &

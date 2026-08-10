@@ -176,7 +176,7 @@ def load_model_for_eval(
 
 
 def evals_output_dir(manifest: Manifest) -> Path:
-    """``output/<run_name>/evals`` under the current working directory."""
+    """``output/train/<run_name>/evals`` under the current working directory."""
     return manifest.output_dir() / "evals"
 
 
@@ -227,6 +227,16 @@ def save_eval_report(path: Path, report: EvalReport) -> Path:
     return write_json(path, report.as_dict())
 
 
+def relative_output_path(path: Path | str) -> str:
+    """Cwd-relative path with a ``./`` prefix when the file is under cwd."""
+    resolved = Path(path).resolve()
+    try:
+        rel = resolved.relative_to(Path.cwd().resolve())
+    except ValueError:
+        return str(resolved)
+    return f"./{rel.as_posix()}"
+
+
 def log_eval_summary(report: EvalReport, *, results_file: Path | str | None = None) -> None:
     """Print a compact exact/prefix summary to the package logger."""
     blank(logger=log)
@@ -243,7 +253,7 @@ def log_eval_summary(report: EvalReport, *, results_file: Path | str | None = No
         logger=log,
     )
     if results_file is not None:
-        detail(f"results:      {results_file}", logger=log)
+        detail(f"results:      {relative_output_path(results_file)}", logger=log)
 
 
 def run_completion_eval(

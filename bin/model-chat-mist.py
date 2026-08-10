@@ -7,7 +7,7 @@ the model continues it in plain text (suited to base LMs pretrained on raw corpu
   ./bin/model-chat-mist.py pre_gpt-2_wikitext_5k_mist
   ./bin/model-chat-mist.py pre_gemma_c4_5k_mist --max-new-tokens 120
 
-Requires a finished (or checkpointed) run under ``output/<run_name>/``.
+Requires a finished (or checkpointed) run under ``output/train/<run_name>/``.
 """
 
 from __future__ import annotations

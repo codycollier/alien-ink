@@ -416,7 +416,7 @@ serialized config works without a per-family branch:
 from alien_ink.hf.model import PretrainedLmConfig
 
 model = PretrainedLmConfig(
-    model_name="EleutherAI/pythia-160m",   # Hub id or local output/<run> path
+    model_name="EleutherAI/pythia-160m",   # Hub id or local output/train/<run> path
     tokenizer_name=None,                    # None => ships with the model
     attention_implementation="sdpa",
     use_cache=False,

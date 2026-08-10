@@ -57,7 +57,7 @@ class PretrainConfig:
     arch: CausalLmArchConfig = field(default_factory=gpt2_arch)
     trainer: CausalLmTrainerConfig = field(
         default_factory=lambda: CausalLmTrainerConfig(
-            output_dir=Path.cwd() / "output" / "pretrain",
+            output_dir=Path.cwd() / "output" / "train" / "pretrain",
             run_name="pretrain",
         )
     )

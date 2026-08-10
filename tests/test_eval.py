@@ -14,6 +14,7 @@ from alien_ink.hf.eval import (
     build_report,
     load_eval_items,
     normalize_text,
+    relative_output_path,
     results_path,
     save_eval_report,
     score_completion,
@@ -153,13 +154,22 @@ def test_build_report_rates_and_no_prompt_fields():
     }
 
 
+def test_relative_output_path_uses_dot_slash(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
+    monkeypatch.chdir(tmp_path)
+    nested = tmp_path / "output" / "train" / "run" / "evals" / "geo.json"
+    nested.parent.mkdir(parents=True)
+    nested.write_text("{}", encoding="utf-8")
+    assert relative_output_path(nested) == "./output/train/run/evals/geo.json"
+    assert relative_output_path(nested.resolve()) == "./output/train/run/evals/geo.json"
+
+
 def test_save_eval_report_writes_under_evals(tmp_path: Path, monkeypatch: pytest.MonkeyPatch):
     monkeypatch.chdir(tmp_path)
     manifest = _tiny_manifest("save-run")
     evals = Path("/tmp/population-exact/geo-us-states.json")
     when = datetime(2026, 8, 10, 19, 0, 0, tzinfo=timezone.utc)
     out = results_path(manifest, evals, when=when)
-    assert out == tmp_path / "output" / "save-run" / "evals" / "geo-us-states-20260810-190000.json"
+    assert out == tmp_path / "output" / "train" / "save-run" / "evals" / "geo-us-states-20260810-190000.json"
 
     report = build_report(
         run_name=manifest.run_name,
@@ -187,6 +197,9 @@ def test_save_eval_report_writes_under_evals(tmp_path: Path, monkeypatch: pytest
     assert "prompt" not in data["items"][0]
     # Eval file contents must not be embedded.
     assert "The capital" not in saved.read_text(encoding="utf-8")
+    assert relative_output_path(saved) == (
+        "./output/train/save-run/evals/geo-us-states-20260810-190000.json"
+    )
 
 
 class _FakeTok:

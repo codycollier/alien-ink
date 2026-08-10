@@ -513,7 +513,7 @@ class PretrainedLmConfig:
     """Identity of an off-the-shelf pretrained causal LM for fine-tuning.
 
     ``model_name`` is a Hub id (e.g. ``EleutherAI/pythia-160m``) or a local
-    checkpoint path (e.g. an Alien Ink ``output/<run>`` directory). Loading
+    checkpoint path (e.g. an Alien Ink ``output/train/<run>`` directory). Loading
     goes through ``AutoModelForCausalLM`` and the model's serialized config —
     no per-family architecture branch — so Pythia, SmolLM2, Qwen, and Alien
     Ink checkpoints all load the same way.

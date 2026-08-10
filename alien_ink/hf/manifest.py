@@ -344,7 +344,7 @@ class Manifest:
         )
 
     def output_dir(self) -> Path:
-        return Path.cwd() / "output" / self.run_name
+        return Path.cwd() / "output" / "train" / self.run_name
 
     def gen_config(self, **overrides):
         """Family-aware generation config derived from ``self.model``.

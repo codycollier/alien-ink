@@ -90,7 +90,7 @@ def test_manifest_to_pretrain_config_merges_segments(tmp_path: Path, monkeypatch
 
     assert cfg.data is manifest.data
     assert cfg.arch is manifest.model
-    assert cfg.trainer.output_dir == tmp_path / "output" / "test-run"
+    assert cfg.trainer.output_dir == tmp_path / "output" / "train" / "test-run"
     assert cfg.trainer.run_name == "test-run"
     assert cfg.trainer.max_steps == 5_000
     assert cfg.trainer.warmup_steps == 200
@@ -165,7 +165,7 @@ def test_manifest_with_model_and_schedule(tmp_path: Path, monkeypatch):
     cfg = manifest.to_pretrain_config()
     assert cfg.arch.n_layer == 6
     assert cfg.trainer.learning_rate == 3e-4
-    assert cfg.trainer.output_dir == tmp_path / "output" / "ablation-l6"
+    assert cfg.trainer.output_dir == tmp_path / "output" / "train" / "ablation-l6"
 
 
 def test_manifest_validate_requires_wandb_identity():
@@ -279,7 +279,7 @@ def test_manifest_to_sft_config(tmp_path: Path, monkeypatch):
     assert cfg.data is manifest.data
     assert cfg.model is manifest.model
     assert cfg.model.model_name == "EleutherAI/pythia-160m"
-    assert cfg.trainer.output_dir == tmp_path / "output" / "test-run"
+    assert cfg.trainer.output_dir == tmp_path / "output" / "train" / "test-run"
     assert cfg.trainer.max_steps == 200
     assert cfg.trainer.learning_rate == 3e-5
     assert cfg.trainer.report_to == "none"

@@ -1,9 +1,9 @@
 #!/usr/bin/env python
 """Post-training completion eval against a zdeck checkpoint on Mist (RTX 3070).
 
-Points at a zdeck, resolves the trained model under ``output/<run_name>/``,
+Points at a zdeck, resolves the trained model under ``output/train/<run_name>/``,
 loads an external eval JSON (prompt + expected completion), runs greedy
-completions, and writes results under ``output/<run_name>/evals/``.
+completions, and writes results under ``output/train/<run_name>/evals/``.
 
   ./bin/model-eval-mist.py sft_smollm2-135m_geo_mist \\
     --evals /tmp/population-exact/geo-us-states.json

@@ -21,7 +21,7 @@ Hub corpus (text rows)
   CausalLmArchConfig     ← family, tokenizer, architecture
         │
         ▼
-  train → output/<run_name>/
+  train → output/train/<run_name>/
         │
         ▼
   generate_completion    ← family-aware GenConfig from manifest
@@ -228,7 +228,7 @@ MANIFEST = Manifest(
 Checkpoints are written to:
 
 ```
-output/<run_name>/
+output/train/<run_name>/
   config.json
   model.safetensors   (or pytorch_model.bin)
   tokenizer files
@@ -278,7 +278,7 @@ Do **not** use chat roles (`System:`, `User:`, `Assistant:`) — the model was n
 ./bin/model-chat-mist.py alien_ink.zdeck.pre_gemma_c4_5k_mist --max-new-tokens 120
 ```
 
-The script loads the manifest, resolves `output/<run_name>/`, and drives generation from `manifest.model.family`.
+The script loads the manifest, resolves `output/train/<run_name>/`, and drives generation from `manifest.model.family`.
 
 Each turn prints **four** candidates on separate lines: greedy (deterministic) first, then sampled at temperatures `0.5`, `0.8`, and `1.2`. A counter and decoding stats sit beside each completion.
 
@@ -317,7 +317,7 @@ Stop strings are passed to Hugging Face `generate()` as native stopping criteria
 from alien_ink.hf.gen import run_spot_check, SpotCheckConfig
 
 run_spot_check(
-    output_dirs=[Path("output/pre-gpt-2-wikitext-5k-mist")],
+    output_dirs=[Path("output/train/pre-gpt-2-wikitext-5k-mist")],
     family="gpt-2",
     spot=SpotCheckConfig(num_samples=5, do_sample=True),
 )
