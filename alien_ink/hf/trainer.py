@@ -5,6 +5,7 @@ from __future__ import annotations
 import math
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
+from importlib.metadata import version
 from pathlib import Path
 from typing import Any
 
@@ -332,6 +333,27 @@ def reporting_disabled(report_to: str | list[str] | tuple[str, ...] | None) -> b
     )
 
 
+def _transformers_major_version() -> int:
+    return int(version("transformers").split(".", maxsplit=1)[0])
+
+
+def _warmup_training_args(config: CausalLmTrainerConfig) -> dict[str, int | float]:
+    """Map alien-ink warmup fields onto HF ``TrainingArguments``.
+
+    Transformers v5+ accepts a float ``warmup_steps`` (ratio) and deprecated
+    ``warmup_ratio``. Passing both, or passing ``warmup_ratio=0`` alongside
+    explicit step counts, overwrites ``warmup_steps`` in recent releases.
+    """
+    if config.warmup_ratio is not None:
+        if _transformers_major_version() >= 5:
+            return {"warmup_steps": config.warmup_ratio}
+        return {"warmup_steps": 0, "warmup_ratio": config.warmup_ratio}
+    steps = config.warmup_steps if config.warmup_steps is not None else 0
+    if _transformers_major_version() >= 5:
+        return {"warmup_steps": steps}
+    return {"warmup_steps": steps, "warmup_ratio": 0.0}
+
+
 def best_model_metric(eval_dataset) -> str:
     """Metric that drives best-model selection and early stopping.
 
@@ -380,8 +402,7 @@ def build_training_arguments(
         gradient_checkpointing=config.gradient_checkpointing,
         learning_rate=config.learning_rate,
         lr_scheduler_type=config.lr_scheduler_type,
-        warmup_steps=config.warmup_steps or 0,
-        warmup_ratio=config.warmup_ratio or 0.0,
+        **_warmup_training_args(config),
         weight_decay=config.weight_decay,
         max_grad_norm=config.max_grad_norm,
         adam_beta1=config.adam_beta1,

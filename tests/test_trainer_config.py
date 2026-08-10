@@ -156,9 +156,31 @@ def test_build_training_arguments_speed_knobs(monkeypatch, tmp_path: Path):
     assert args.torch_compile is True
     assert args.optim == "adamw_torch_fused"
     assert args.gradient_checkpointing is False
-    assert args.warmup_steps == 0
-    assert args.warmup_ratio == 0.04
+    if int(transformers.__version__.split(".", maxsplit=1)[0]) >= 5:
+        assert args.warmup_steps == 0.04
+    else:
+        assert args.warmup_steps == 0
+        assert args.warmup_ratio == 0.04
     assert args.data_seed == 303
+
+
+def test_build_training_arguments_warmup_steps_not_mangled(monkeypatch, tmp_path: Path):
+    from alien_ink.hf import trainer as trainer_mod
+
+    monkeypatch.setattr(
+        trainer_mod,
+        "device_info",
+        lambda **_kwargs: ("cpu", False, False),
+    )
+    cfg = CausalLmTrainerConfig(
+        output_dir=tmp_path / "out",
+        max_steps=10_000,
+        warmup_steps=200,
+        eval_steps=100,
+        save_steps=100,
+    )
+    args = trainer_mod.build_training_arguments(cfg, has_eval=False)
+    assert args.warmup_steps == 200
 
 
 def test_trainer_config_validates_warmup_and_cadence(tmp_path: Path):
