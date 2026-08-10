@@ -10,4 +10,5 @@ Submodules:
   pretrain — causal-LM pretrain entrypoint (optional W&B via alien_ink.com.wb)
   sft      — full-parameter fine-tune entrypoint for pretrained checkpoints
   gen      — generation / spot-check
+  eval     — post-training completion eval (external JSON, exact/prefix)
 """
