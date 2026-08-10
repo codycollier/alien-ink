@@ -19,11 +19,15 @@ from typing import Any, Literal
 ManifestStage = Literal["pre", "sft"]
 _VALID_STAGES: frozenset[str] = frozenset({"pre", "sft"})
 
+from alien_ink.hf.curriculum import Curriculum
 from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.model import CausalLmArchConfig, gpt2_arch
 from alien_ink.hf.pretrain import PretrainConfig, pretrain
 from alien_ink.hf.trainer import CausalLmTrainerConfig
+from alien_ink.com.log import get_logger
 from alien_ink.com.wb import require_wandb_identity
+
+log = get_logger("hf.manifest")
 
 __all__ = [
     "HardwareConfig",
@@ -279,6 +283,10 @@ class Manifest:
     fine-tuning (``sft``). Zdeck filenames mirror ``run_name`` (underscores vs
     hyphens), e.g. ``pre_gemma_c4_5k_mist.py`` / ``pre-gemma-c4-5k-mist``.
 
+    ``data`` is a single corpus or a
+    :class:`~alien_ink.hf.curriculum.Curriculum` of sequenced corpora; with a
+    curriculum, ``schedule.max_steps`` must equal ``curriculum.total_steps()``.
+
     Materializes a :class:`~alien_ink.hf.pretrain.PretrainConfig` via
     :meth:`to_pretrain_config`. Compose ablations with :meth:`variant`,
     :meth:`with_hardware`, :meth:`with_data`, :meth:`with_model`,
@@ -287,7 +295,7 @@ class Manifest:
 
     run_name: str
     title: str
-    data: PretrainDataConfig
+    data: PretrainDataConfig | Curriculum
     stage: ManifestStage = "pre"
     model: CausalLmArchConfig = field(default_factory=gpt2_arch)
     hardware: HardwareConfig = field(default_factory=mist_rtx_3070)
@@ -304,6 +312,11 @@ class Manifest:
         return replace(self, hardware=replace(self.hardware, **kw))
 
     def with_data(self, **kw: Any) -> Manifest:
+        """Replace fields on a plain ``PretrainDataConfig`` ``data``.
+
+        Curricula are compositions; rebuild the ``Curriculum`` explicitly
+        instead of patching it field-wise.
+        """
         return replace(self, data=replace(self.data, **kw))
 
     def with_model(self, **kw: Any) -> Manifest:
@@ -349,6 +362,44 @@ class Manifest:
             raise ValueError(
                 f"data.block_size ({self.data.block_size}) cannot exceed "
                 f"model.n_positions ({self.model.n_positions})"
+            )
+        if isinstance(self.data, Curriculum):
+            self._validate_curriculum_schedule()
+
+    def _validate_curriculum_schedule(self) -> None:
+        """Check the schedule against curriculum phase budgets.
+
+        The schedule stays the explicit source of truth: zdeck programs set
+        ``max_steps=CURRICULUM.total_steps()``. Phase boundaries that miss a
+        ``save_steps`` tick only warn — a checkpoint exactly at the boundary
+        lets followup phases be re-run from the same base.
+        """
+        total = self.data.total_steps()
+        if self.schedule.uses_epochs():
+            raise ValueError(
+                "curriculum data requires step mode; set "
+                f"schedule.max_steps={total} (curriculum.total_steps()), "
+                "not epoch mode (max_steps=-1)"
+            )
+        if self.schedule.max_steps != total:
+            raise ValueError(
+                f"schedule.max_steps ({self.schedule.max_steps}) must equal "
+                f"curriculum.total_steps() ({total})"
+            )
+        save_steps = self.schedule.cadence()["save_steps"]
+        # Final boundary is training end; the model is saved there regardless.
+        unaligned = [
+            boundary
+            for boundary in self.data.boundaries()[:-1]
+            if boundary % save_steps != 0
+        ]
+        if unaligned:
+            log.warning(
+                "curriculum phase boundaries %s do not land on save_steps "
+                "(%d) ticks; no checkpoint will exist exactly at those "
+                "boundaries",
+                unaligned,
+                save_steps,
             )
 
     def to_pretrain_config(self) -> PretrainConfig:

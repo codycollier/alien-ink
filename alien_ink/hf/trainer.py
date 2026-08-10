@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import math
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Any
@@ -36,6 +37,7 @@ __all__ = [
     "CausalLmTrainerConfig",
     "DEFAULT_EPOCH_EVALS_PER_EPOCH",
     "apply_epoch_cadence",
+    "best_model_metric",
     "build_causal_lm_trainer",
     "build_lm_data_collator",
     "build_trainer_callbacks",
@@ -309,7 +311,14 @@ class _EpochEndEvalCallback(TrainerCallback):
 
 
 def has_eval_examples(eval_dataset) -> bool:
-    return eval_dataset is not None and len(eval_dataset) > 0
+    """True when eval has rows (accepts a single dataset or a named mapping)."""
+    if eval_dataset is None:
+        return False
+    if isinstance(eval_dataset, Mapping):
+        return len(eval_dataset) > 0 and all(
+            len(dataset) > 0 for dataset in eval_dataset.values()
+        )
+    return len(eval_dataset) > 0
 
 
 def reporting_disabled(report_to: str | list[str] | tuple[str, ...] | None) -> bool:
@@ -323,10 +332,23 @@ def reporting_disabled(report_to: str | list[str] | tuple[str, ...] | None) -> b
     )
 
 
+def best_model_metric(eval_dataset) -> str:
+    """Metric that drives best-model selection and early stopping.
+
+    Named eval sets (a mapping) report per-set losses (``eval_<name>_loss``);
+    the first named set is the reference. A single dataset keeps ``eval_loss``.
+    """
+    if isinstance(eval_dataset, Mapping) and len(eval_dataset) > 0:
+        first = next(iter(eval_dataset))
+        return f"eval_{first}_loss"
+    return "eval_loss"
+
+
 def build_training_arguments(
     config: CausalLmTrainerConfig,
     *,
     has_eval: bool,
+    metric_for_best_model: str = "eval_loss",
 ) -> TrainingArguments:
     """Map ``CausalLmTrainerConfig`` onto HF ``TrainingArguments``."""
     config.validate()
@@ -372,7 +394,7 @@ def build_training_arguments(
         save_steps=config.save_steps,
         save_total_limit=config.save_total_limit,
         load_best_model_at_end=has_eval,
-        metric_for_best_model="eval_loss" if has_eval else None,
+        metric_for_best_model=metric_for_best_model if has_eval else None,
         greater_is_better=False,
         bf16=use_bf16,
         fp16=use_fp16,
@@ -423,7 +445,12 @@ def build_causal_lm_trainer(
     eval_dataset,
     config: CausalLmTrainerConfig,
 ) -> Trainer:
-    """Build a HF ``Trainer`` for causal LM with optional eval / early stopping."""
+    """Build a HF ``Trainer`` for causal LM with optional eval / early stopping.
+
+    ``eval_dataset`` may be a single dataset or a mapping of named datasets
+    (reported as ``eval_<name>_loss``; the first name drives best-model
+    selection and early stopping).
+    """
     has_eval = has_eval_examples(eval_dataset)
     # Materialized epoch runs: derive log/eval/save from dataset length so we
     # hit ~5 evals per epoch (including epoch end). Streamed / step-capped runs
@@ -435,12 +462,22 @@ def build_causal_lm_trainer(
             num_examples = 0
         if num_examples > 0:
             config = apply_epoch_cadence(config, num_train_examples=num_examples)
-    args = build_training_arguments(config, has_eval=has_eval)
+    args = build_training_arguments(
+        config,
+        has_eval=has_eval,
+        metric_for_best_model=best_model_metric(eval_dataset),
+    )
+    if not has_eval:
+        eval_arg = None
+    elif isinstance(eval_dataset, Mapping):
+        eval_arg = dict(eval_dataset)
+    else:
+        eval_arg = eval_dataset
     return Trainer(
         model=model,
         args=args,
         train_dataset=train_dataset,
-        eval_dataset=eval_dataset if has_eval else None,
+        eval_dataset=eval_arg,
         processing_class=tokenizer,
         data_collator=build_lm_data_collator(tokenizer),
         callbacks=build_trainer_callbacks(config, has_eval=has_eval),

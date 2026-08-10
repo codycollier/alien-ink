@@ -21,6 +21,7 @@ from alien_ink.com.device import (
     introspect,
 )
 from alien_ink.com.env import load_env
+from alien_ink.hf.curriculum import Curriculum, prepare_curriculum_datasets
 from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
 from alien_ink.hf.metrics import (
     build_run_config_payload,
@@ -45,9 +46,14 @@ log = get_logger("hf.pretrain")
 
 @dataclass(frozen=True)
 class PretrainConfig:
-    """Composable config for from-scratch causal-LM pretraining on a Hub corpus."""
+    """Composable config for from-scratch causal-LM pretraining.
 
-    data: PretrainDataConfig
+    ``data`` is either a single Hub corpus (:class:`PretrainDataConfig`) or a
+    :class:`~alien_ink.hf.curriculum.Curriculum` of sequenced corpora; both
+    expose ``block_size`` and ``seed`` so the rest of the pipeline is agnostic.
+    """
+
+    data: PretrainDataConfig | Curriculum
     arch: CausalLmArchConfig = field(default_factory=gpt2_arch)
     trainer: CausalLmTrainerConfig = field(
         default_factory=lambda: CausalLmTrainerConfig(
@@ -79,7 +85,11 @@ def with_data(
     config: PretrainConfig,
     **data_overrides,
 ) -> PretrainConfig:
-    """Return ``config`` with selected ``PretrainDataConfig`` fields replaced."""
+    """Return ``config`` with selected ``PretrainDataConfig`` fields replaced.
+
+    Applies to plain :class:`PretrainDataConfig` only; rebuild a
+    :class:`~alien_ink.hf.curriculum.Curriculum` explicitly instead.
+    """
     return replace(config, data=replace(config.data, **data_overrides))
 
 
@@ -268,7 +278,20 @@ def pretrain(
         set_wandb_dir(config.trainer.output_dir)
     model, tokenizer = build_model_and_tokenizer(config.arch)
     model_size = count_model_params(model, vocab_size=tokenizer.vocab_size)
-    train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
+    if isinstance(config.data, Curriculum):
+        world_size = max(1, accel.world_size or distributed_world_size())
+        samples_per_step = (
+            config.trainer.per_device_train_batch_size
+            * config.trainer.gradient_accumulation_steps
+            * world_size
+        )
+        train_dataset, eval_dataset = prepare_curriculum_datasets(
+            config.data,
+            tokenizer,
+            samples_per_step=samples_per_step,
+        )
+    else:
+        train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
 
     log_configs: dict[str, Any] = {
         "data": config.data,

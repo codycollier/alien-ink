@@ -5,8 +5,9 @@ Supports three load modes:
   - ``subset``     — materialize a bounded train prefix (``max_train_samples``)
   - ``complete``   — materialize the full Hub split (non-streaming download)
 
-Built-in corpora: English Wikipedia, WikiText-103, C4 English. Add a factory
-that returns ``PretrainDataConfig`` to extend.
+Built-in corpora: English Wikipedia, WikiText-103, C4 English, and
+geo-us-states. Use :func:`hub_text` for any other Hub text corpus, or add a
+factory that returns ``PretrainDataConfig`` to extend.
 """
 
 from __future__ import annotations
@@ -268,6 +269,53 @@ def c4_english_complete(
     """Fully materialized C4 English train + validation splits."""
     return c4_english(
         name=name,
+        mode="complete",
+        max_eval_samples=max_eval_samples,
+    )
+
+
+def hub_text(
+    dataset: str,
+    *,
+    name: str | None = None,
+    split: str = "train",
+    text_column: str = "text",
+    eval_source: HubTextSource | None = None,
+    mode: LoadMode = "complete",
+    max_eval_samples: int = 1_000,
+    max_train_samples: int | None = None,
+    respect_document_boundaries: bool = True,
+) -> PretrainDataConfig:
+    """Generic factory for any Hub text corpus (e.g. personal datasets).
+
+    Defaults to ``mode="complete"`` with a hold-out eval, which suits small
+    custom corpora. For corpora with fewer rows than ``max_eval_samples``,
+    lower it or the hold-out will swallow the whole train split.
+    """
+    return _data_config(
+        HubTextSource(
+            dataset=dataset,
+            name=name,
+            split=split,
+            text_column=text_column,
+        ),
+        eval_source=eval_source,
+        mode=mode,
+        max_eval_samples=max_eval_samples,
+        max_train_samples=max_train_samples,
+        respect_document_boundaries=respect_document_boundaries,
+    )
+
+
+def geo_us_states(*, max_eval_samples: int = 4) -> PretrainDataConfig:
+    """``codycollier/geo-us-states`` — 56 long documents, one per US state/territory.
+
+    Rows are ~17k tokens each, so document-bounded chunking still yields many
+    blocks per row. The corpus is tiny; eval holds out just a few rows so the
+    train split keeps nearly all states.
+    """
+    return hub_text(
+        "codycollier/geo-us-states",
         mode="complete",
         max_eval_samples=max_eval_samples,
     )
