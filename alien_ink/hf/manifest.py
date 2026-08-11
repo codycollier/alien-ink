@@ -16,19 +16,19 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any, Literal
 
-ManifestStage = Literal["pre", "sft"]
-_VALID_STAGES: frozenset[str] = frozenset({"pre", "sft"})
-
+from alien_ink.com.log import get_logger
+from alien_ink.com.wb import require_wandb_identity
 from alien_ink.hf.curriculum import Curriculum
 from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.model import CausalLmArchConfig, PretrainedLmConfig, gpt2_arch
 from alien_ink.hf.pretrain import PretrainConfig, pretrain
 from alien_ink.hf.sft import SftConfig, finetune
 from alien_ink.hf.trainer import CausalLmTrainerConfig
-from alien_ink.com.log import get_logger
-from alien_ink.com.wb import require_wandb_identity
 
 log = get_logger("hf.manifest")
+
+ManifestStage = Literal["pre", "sft"]
+_VALID_STAGES: frozenset[str] = frozenset({"pre", "sft"})
 
 __all__ = [
     "HardwareConfig",

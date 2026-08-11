@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Background baseline-perf zdeck program on Mist (local RTX 3070). Logs under output/train/.
 #
-#   ./bin/baseline_perf_mist.sh
+#   ./bin/mist-train-baseline-perf.sh
 #
 # GPT-NeoX from scratch, 0.25 epochs on WikiText-103 (complete). W&B entity /
 # project / name are set inside the zdeck module.

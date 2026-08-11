@@ -4,8 +4,8 @@
 Each turn is a fresh prompt — no history. Type a sentence starter or fragment;
 the model continues it in plain text (suited to base LMs pretrained on raw corpus).
 
-  ./bin/model-chat-mist.py pre_gpt-2_wikitext_5k_mist
-  ./bin/model-chat-mist.py pre_gemma_c4_5k_mist --max-new-tokens 120
+  ./bin/mist-chat-with-model.py pre_gpt-2_wikitext_5k_mist
+  ./bin/mist-chat-with-model.py sft_pythia-70m_geo_100ep_mist --max-new-tokens 120
 
 Requires a finished (or checkpointed) run under ``output/train/<run_name>/``.
 """
@@ -13,8 +13,6 @@ Requires a finished (or checkpointed) run under ``output/train/<run_name>/``.
 from __future__ import annotations
 
 import argparse
-import importlib
-import importlib.util
 import os
 import sys
 import textwrap
@@ -22,14 +20,14 @@ import threading
 import time
 from contextlib import contextmanager
 from pathlib import Path
-from types import ModuleType
 from typing import Iterator
 
 from alien_ink.com.device import collect_accelerator_info, device_info
 from alien_ink.com.log import banner, blank, detail, get_logger, header, step
+from alien_ink.hf.eval import load_model_for_eval
 from alien_ink.hf.gen import CompletionResult, generate_chat_completions
-from alien_ink.hf.manifest import Manifest
-from alien_ink.hf.model import find_checkpoint_path, load_pretrained_model
+from alien_ink.hf.model import PretrainedLmConfig
+from alien_ink.zdeck import load_manifest
 
 
 log = get_logger("bin.chat")
@@ -42,7 +40,6 @@ _BLUE = "\033[34m"
 _RESET = "\033[0m"
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-ZDECK_DIR = REPO_ROOT / "alien_ink" / "zdeck"
 
 
 @contextmanager
@@ -91,58 +88,14 @@ def parse_args(argv: list[str] | None = None) -> argparse.Namespace:
     return parser.parse_args(argv)
 
 
-def _load_module_from_path(path: Path) -> tuple[ModuleType, str]:
-    """Load a zdeck .py file (supports hyphenated filenames)."""
-    if not path.is_file():
-        raise FileNotFoundError(path)
-    label = str(path.relative_to(REPO_ROOT)) if path.is_relative_to(REPO_ROOT) else str(path)
-    spec = importlib.util.spec_from_file_location(f"zdeck_script_{path.stem}", path)
-    if spec is None or spec.loader is None:
-        raise ImportError(f"cannot load zdeck script {path}")
-    mod = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(mod)
-    return mod, label
-
-
-def load_zdeck(name: str) -> tuple[ModuleType, str]:
-    """Load a zdeck module or hyphenated script by short name / path / module path."""
-    name = name.strip()
-    if name.endswith(".py") or "/" in name:
-        return _load_module_from_path((REPO_ROOT / name).resolve())
-
-    # Hyphenated zdeck filenames cannot be imported as packages.
-    script = ZDECK_DIR / f"{name}.py"
-    if "-" in name or script.is_file():
-        try:
-            return _load_module_from_path(script)
-        except FileNotFoundError:
-            pass
-
-    module_name = name
-    if name.startswith("zdeck."):
-        module_name = f"alien_ink.{name}"
-    elif not name.startswith("alien_ink.zdeck."):
-        module_name = f"alien_ink.zdeck.{name}"
-
-    try:
-        return importlib.import_module(module_name), module_name
-    except ModuleNotFoundError as exc:
-        raise SystemExit(
-            f"Unknown zdeck {name!r}. "
-            "Try pre_gpt-2_wikitext_5k_mist, pre_gpt-2_wikipedia_5k_mist, "
-            "pre_gemma_c4_5k_mist, pre_gemma_c4_50k_mist, "
-            "pre_gpt-neox_wikitext_4ep_mist."
-        ) from exc
-
-
 def main(argv: list[str] | None = None) -> None:
     args = parse_args(argv)
     os.chdir(REPO_ROOT)
 
-    mod, label = load_zdeck(args.zdeck)
-    manifest = getattr(mod, "MANIFEST", None)
-    if not isinstance(manifest, Manifest):
-        raise SystemExit(f"{label} has no Manifest named MANIFEST")
+    try:
+        manifest, label = load_manifest(args.zdeck)
+    except (ModuleNotFoundError, FileNotFoundError, ValueError) as exc:
+        raise SystemExit(str(exc)) from exc
 
     header(logger=log)
     banner(f"interactive completion — {manifest.run_name}", logger=log)
@@ -154,16 +107,16 @@ def main(argv: list[str] | None = None) -> None:
     gpu = accel.gpu_name or device
     step(f"Device: {device} ({gpu})", logger=log)
     detail(f"zdeck:    {label}", logger=log)
-    detail(f"family:   {manifest.model.family}", logger=log)
+    if isinstance(manifest.model, PretrainedLmConfig):
+        detail(f"base:     {manifest.model.model_name}", logger=log)
+    else:
+        detail(f"family:   {manifest.model.family}", logger=log)
     detail(f"run_name: {manifest.run_name}", logger=log)
 
-    model_path = find_checkpoint_path(manifest.output_dir())
-    model, tokenizer = load_pretrained_model(
-        model_path,
-        device,
-        family=manifest.model.family,
-    )
-    model.config.use_cache = True
+    try:
+        model, tokenizer, _ = load_model_for_eval(manifest, device)
+    except FileNotFoundError as exc:
+        raise SystemExit(str(exc)) from exc
     gen = manifest.gen_config(max_new_tokens=args.max_new_tokens)
 
     blank(logger=log)

@@ -73,35 +73,44 @@ class RunSummary:
 
 
 def count_model_params(model, *, vocab_size: int | None = None) -> ModelSize:
-    """Count total / trainable / non-embedding parameters."""
+    """Count total / trainable / non-embedding parameters.
+
+    Embedding params are every ``nn.Embedding`` table (token + any learned
+    positional table) plus the output projection, deduped by weight identity
+    so tied embeddings count once and untied ones (e.g. GPT-NeoX / Pythia)
+    count both sides. Rotary embeddings carry no parameters, so families
+    without a positional table are unaffected.
+    """
+    import torch
+
     total = sum(p.numel() for p in model.parameters())
     trainable = sum(p.numel() for p in model.parameters() if p.requires_grad)
 
+    embed_modules = [
+        module
+        for module in model.modules()
+        if isinstance(module, torch.nn.Embedding)
+    ]
+    get_output = getattr(model, "get_output_embeddings", None)
+    output_embeddings = get_output() if callable(get_output) else None
+    if output_embeddings is not None:
+        embed_modules.append(output_embeddings)
+
     embed = 0
     seen: set[int] = set()
-    # GPT-2 / HF naming (dedupe by storage id for tied weights).
-    for name in ("wte", "wpe", "embed_tokens", "embeddings"):
-        module = getattr(getattr(model, "transformer", model), name, None)
-        if module is None:
-            module = getattr(model, name, None)
-        weight = getattr(module, "weight", None) if module is not None else None
-        if weight is None:
+    for module in embed_modules:
+        weight = getattr(module, "weight", None)
+        if weight is None or id(weight) in seen:
             continue
-        key = id(weight)
-        if key in seen:
-            continue
-        seen.add(key)
+        seen.add(id(weight))
         embed += weight.numel()
 
-    # Fallback: vocab * hidden if embeddings not found by name.
+    # Fallback: vocab * hidden when no embedding modules were found.
     if embed == 0 and vocab_size is not None:
         cfg = getattr(model, "config", None)
         hidden = getattr(cfg, "n_embd", None) or getattr(cfg, "hidden_size", None)
-        n_pos = getattr(cfg, "n_positions", None) or getattr(
-            cfg, "max_position_embeddings", 0
-        )
         if hidden:
-            embed = int(vocab_size) * int(hidden) + int(n_pos or 0) * int(hidden)
+            embed = int(vocab_size) * int(hidden)
 
     non_embed = max(0, total - embed)
     return ModelSize(

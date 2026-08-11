@@ -8,6 +8,7 @@ from alien_ink.com.device import AcceleratorInfo
 from alien_ink.hf.metrics import (
     ModelSize,
     build_run_summary,
+    count_model_params,
     estimate_train_flops,
     save_run_config,
     save_run_summary,
@@ -38,6 +39,53 @@ def _accel(**overrides) -> AcceleratorInfo:
 
 def test_estimate_train_flops_kaplan_6n():
     assert estimate_train_flops(non_embedding_params=100, tokens=10) == 6 * 100 * 10
+
+
+def _true_non_embedding_params(model) -> int:
+    """Ground truth: total minus deduped input/output/positional tables."""
+    total = sum(p.numel() for p in model.parameters())
+    seen: set[int] = set()
+    embed = 0
+    wpe = getattr(getattr(model, "transformer", None), "wpe", None)
+    for module in (model.get_input_embeddings(), model.get_output_embeddings(), wpe):
+        weight = getattr(module, "weight", None)
+        if weight is not None and id(weight) not in seen:
+            seen.add(id(weight))
+            embed += weight.numel()
+    return total - embed
+
+
+def test_count_model_params_per_family_embedding_accounting():
+    """Tied (GPT-2/Gemma), untied (NeoX), and rotary-only families all count right."""
+    from transformers import (
+        GemmaConfig,
+        GemmaForCausalLM,
+        GPT2Config,
+        GPT2LMHeadModel,
+        GPTNeoXConfig,
+        GPTNeoXForCausalLM,
+    )
+
+    tiny = dict(
+        vocab_size=128,
+        hidden_size=32,
+        num_hidden_layers=2,
+        num_attention_heads=4,
+        intermediate_size=64,
+        max_position_embeddings=64,
+    )
+    models = [
+        GPT2LMHeadModel(
+            GPT2Config(vocab_size=128, n_embd=32, n_layer=2, n_head=4, n_positions=64)
+        ),
+        GPTNeoXForCausalLM(GPTNeoXConfig(**tiny)),
+        GemmaForCausalLM(GemmaConfig(**tiny, head_dim=8)),
+    ]
+    for model in models:
+        size = count_model_params(model, vocab_size=128)
+        assert size.non_embedding_params == _true_non_embedding_params(model)
+        assert size.total_params == sum(p.numel() for p in model.parameters())
+        assert size.trainable_params == size.total_params
 
 
 def test_build_run_summary_throughput_and_mfu():

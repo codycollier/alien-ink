@@ -2,7 +2,7 @@
 # Background fine-tune (sft) zdeck program on Mist (local RTX 3070). Logs under output/train/.
 #
 # Uncomment one zdeck block below, then:
-#   ./bin/finetune-mist.sh
+#   ./bin/mist-train-finetune-general.sh
 #
 # W&B entity / project / name are set inside each zdeck module.
 # Use `module=...` for importable packages, or `script=...` for hyphenated
