@@ -33,14 +33,14 @@ banner() {
   printf "\n======== %s ========\n" "$1"
 }
 
-banner "1/4 train baseline (C4 5k)"
-python alien_ink/zdeck/pre_gpt-neox_c4_5k_mist.py
+#banner "1/4 train baseline (C4 5k)"
+#python alien_ink/zdeck/pre_gpt-neox_c4_5k_mist.py
 
 banner "2/4 eval baseline — population-exact geo-us-states"
 ./bin/model-eval-mist.py pre_gpt-neox_c4_5k_mist --evals "$evals"
 
-banner "3/4 train curriculum (C4 5k + geo 100)"
-python alien_ink/zdeck/pre_gpt-neox_curriculum_geo_mist.py
+#banner "3/4 train curriculum (C4 5k + geo 100)"
+#python alien_ink/zdeck/pre_gpt-neox_curriculum_geo_mist.py
 
 banner "4/4 eval curriculum — population-exact geo-us-states"
 ./bin/model-eval-mist.py pre_gpt-neox_curriculum_geo_mist --evals "$evals"

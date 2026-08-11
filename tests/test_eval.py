@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import math
 from datetime import datetime, timezone
 from pathlib import Path
 
@@ -12,13 +13,16 @@ from alien_ink.hf.eval import (
     EvalItem,
     ItemResult,
     build_report,
+    char_similarity,
     load_eval_items,
     normalize_text,
     relative_output_path,
     results_path,
+    rouge_l_f1,
     save_eval_report,
     score_completion,
     suggest_max_new_tokens,
+    token_f1,
 )
 from alien_ink.hf.manifest import Manifest
 from alien_ink.hf.model import gpt2_arch
@@ -38,28 +42,81 @@ def _tiny_manifest(run_name: str = "eval-test-run") -> Manifest:
     )
 
 
+def _item(
+    *,
+    slug: str,
+    predicted: str,
+    exact: bool,
+    prefix: bool,
+    n_tokens: int,
+    loss: float | None = None,
+    ppl: float | None = None,
+    char_sim: float = 0.0,
+    token_f1_score: float = 0.0,
+    rouge_l: float = 0.0,
+) -> ItemResult:
+    return ItemResult(
+        slug=slug,
+        predicted=predicted,
+        exact=exact,
+        prefix=prefix,
+        n_tokens=n_tokens,
+        loss=loss,
+        ppl=ppl,
+        char_sim=char_sim,
+        token_f1=token_f1_score,
+        rouge_l=rouge_l,
+    )
+
+
 def test_normalize_text_strips_and_collapses_whitespace():
     assert normalize_text("  hello   world\n\t!") == "hello world !"
     assert normalize_text("") == ""
 
 
 def test_score_completion_exact_and_prefix():
-    exact, prefix = score_completion("Austin, Texas.", "Austin, Texas.")
-    assert exact and prefix
+    scores = score_completion("Austin, Texas.", "Austin, Texas.")
+    assert scores.exact and scores.prefix
+    assert scores.char_sim == pytest.approx(1.0)
+    assert scores.token_f1 == pytest.approx(1.0)
+    assert scores.rouge_l == pytest.approx(1.0)
 
-    exact, prefix = score_completion("  Austin,  Texas.  ", "Austin, Texas.")
-    assert exact and prefix
+    scores = score_completion("  Austin,  Texas.  ", "Austin, Texas.")
+    assert scores.exact and scores.prefix
 
-    exact, prefix = score_completion("Austin, Texas. Population grew.", "Austin, Texas.")
-    assert not exact and prefix
+    scores = score_completion("Austin, Texas. Population grew.", "Austin, Texas.")
+    assert not scores.exact and scores.prefix
+    assert 0.0 < scores.char_sim < 1.0
 
-    exact, prefix = score_completion("Dallas.", "Austin, Texas.")
-    assert not exact and not prefix
+    scores = score_completion("Dallas.", "Austin, Texas.")
+    assert not scores.exact and not scores.prefix
+    assert scores.char_sim < 1.0
 
 
 def test_score_completion_empty_expected():
-    assert score_completion("", "") == (True, True)
-    assert score_completion("x", "") == (False, False)
+    scores = score_completion("", "")
+    assert scores.exact and scores.prefix
+    assert scores.char_sim == 1.0
+
+    scores = score_completion("x", "")
+    assert not scores.exact and not scores.prefix
+    assert scores.char_sim == 0.0
+
+
+def test_char_similarity_and_token_metrics():
+    assert char_similarity("abc", "abc") == pytest.approx(1.0)
+    assert char_similarity("abc", "abd") == pytest.approx(2 / 3)
+    assert char_similarity("", "abc") == pytest.approx(0.0)
+
+    assert token_f1("the capital of texas", "the capital of texas") == pytest.approx(1.0)
+    assert token_f1("austin texas", "dallas texas") == pytest.approx(0.5)
+    assert token_f1("a b c", "x y z") == pytest.approx(0.0)
+
+    # Shared ordered subsequence "the population" → ROUGE-L > bag F1 alone.
+    assert rouge_l_f1(
+        "the population grew quickly",
+        "the population of texas",
+    ) == pytest.approx(0.5)
 
 
 def test_load_eval_items_ok(tmp_path: Path):
@@ -120,11 +177,44 @@ def test_load_eval_items_rejects_bad_shape(tmp_path: Path):
         load_eval_items(dup)
 
 
-def test_build_report_rates_and_no_prompt_fields():
+def test_build_report_rates_and_score_rollups():
     items = [
-        ItemResult(slug="a", predicted="yes", exact=True, prefix=True, n_tokens=1),
-        ItemResult(slug="b", predicted="yes please", exact=False, prefix=True, n_tokens=2),
-        ItemResult(slug="c", predicted="no", exact=False, prefix=False, n_tokens=1),
+        _item(
+            slug="a",
+            predicted="yes",
+            exact=True,
+            prefix=True,
+            n_tokens=1,
+            loss=1.0,
+            ppl=2.718281828,
+            char_sim=1.0,
+            token_f1_score=1.0,
+            rouge_l=1.0,
+        ),
+        _item(
+            slug="b",
+            predicted="yes please",
+            exact=False,
+            prefix=True,
+            n_tokens=2,
+            loss=3.0,
+            ppl=20.08553692,
+            char_sim=0.5,
+            token_f1_score=0.4,
+            rouge_l=0.6,
+        ),
+        _item(
+            slug="c",
+            predicted="no",
+            exact=False,
+            prefix=False,
+            n_tokens=1,
+            loss=None,
+            ppl=None,
+            char_sim=0.0,
+            token_f1_score=0.0,
+            rouge_l=0.0,
+        ),
     ]
     report = build_report(
         run_name="run",
@@ -141,6 +231,11 @@ def test_build_report_rates_and_no_prompt_fields():
     assert report.prefix_count == 2
     assert report.exact_rate == pytest.approx(1 / 3)
     assert report.prefix_rate == pytest.approx(2 / 3)
+    assert report.mean_loss == pytest.approx(2.0)
+    assert report.mean_ppl == pytest.approx(math.exp(2.0))
+    assert report.mean_char_sim == pytest.approx(0.5)
+    assert report.mean_token_f1 == pytest.approx(1.4 / 3)
+    assert report.mean_rouge_l == pytest.approx(1.6 / 3)
 
     payload = report.as_dict()
     assert "prompt" not in payload["items"][0]
@@ -151,6 +246,11 @@ def test_build_report_rates_and_no_prompt_fields():
         "exact",
         "prefix",
         "n_tokens",
+        "loss",
+        "ppl",
+        "char_sim",
+        "token_f1",
+        "rouge_l",
     }
 
 
@@ -179,12 +279,17 @@ def test_save_eval_report_writes_under_evals(tmp_path: Path, monkeypatch: pytest
         max_new_tokens=16,
         do_sample=False,
         items=[
-            ItemResult(
+            _item(
                 slug="texas",
                 predicted="Austin.",
                 exact=True,
                 prefix=True,
                 n_tokens=2,
+                loss=0.5,
+                ppl=1.648721,
+                char_sim=1.0,
+                token_f1_score=1.0,
+                rouge_l=1.0,
             )
         ],
         timestamp="2026-08-10T19:00:00Z",
@@ -193,7 +298,10 @@ def test_save_eval_report_writes_under_evals(tmp_path: Path, monkeypatch: pytest
     assert saved.is_file()
     data = json.loads(saved.read_text(encoding="utf-8"))
     assert data["exact_count"] == 1
+    assert data["mean_loss"] == pytest.approx(0.5)
+    assert data["mean_char_sim"] == pytest.approx(1.0)
     assert data["items"][0]["slug"] == "texas"
+    assert data["items"][0]["token_f1"] == pytest.approx(1.0)
     assert "prompt" not in data["items"][0]
     # Eval file contents must not be embedded.
     assert "The capital" not in saved.read_text(encoding="utf-8")

@@ -1,23 +1,33 @@
 """Post-training completion eval against an external JSON item file.
 
 Loads a trained checkpoint, generates greedy continuations for each
-``prompt``, and scores against ``completion`` with normalized exact match
-(primary) and prefix match (secondary). Eval file contents are never copied
-into the run output — only results are written under ``evals/``.
+``prompt``, and scores against ``completion`` with:
+
+* normalized exact / prefix match (discrete hit rates)
+* teacher-forced mean CE loss + perplexity on the expected completion
+  (same signal as training ``eval_loss``)
+* text similarity of predicted vs expected: char edit similarity, token F1,
+  and ROUGE-L F1
+
+Eval file contents are never copied into the run output — only results are
+written under ``evals/``.
 """
 
 from __future__ import annotations
 
 import json
+import math
 import re
+from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
+import torch
 from transformers import AutoModelForCausalLM, PreTrainedModel, PreTrainedTokenizerBase
 
-from alien_ink.com.device import move_module_to_device
+from alien_ink.com.device import move_module_to_device, torch_device
 from alien_ink.com.log import banner, blank, detail, get_logger, header, step
 from alien_ink.hf.gen import generate_completion_result
 from alien_ink.hf.manifest import Manifest
@@ -47,6 +57,17 @@ class EvalItem:
 
 
 @dataclass(frozen=True)
+class TextScores:
+    """Discrete hits plus continuous similarity of predicted vs expected."""
+
+    exact: bool
+    prefix: bool
+    char_sim: float
+    token_f1: float
+    rouge_l: float
+
+
+@dataclass(frozen=True)
 class ItemResult:
     """Per-item prediction and scores (no prompt / expected text)."""
 
@@ -55,6 +76,11 @@ class ItemResult:
     exact: bool
     prefix: bool
     n_tokens: int
+    loss: float | None
+    ppl: float | None
+    char_sim: float
+    token_f1: float
+    rouge_l: float
 
     def as_dict(self) -> dict[str, Any]:
         return asdict(self)
@@ -76,6 +102,11 @@ class EvalReport:
     prefix_count: int
     exact_rate: float
     prefix_rate: float
+    mean_loss: float | None
+    mean_ppl: float | None
+    mean_char_sim: float
+    mean_token_f1: float
+    mean_rouge_l: float
     items: tuple[ItemResult, ...] = field(default_factory=tuple)
 
     def as_dict(self) -> dict[str, Any]:
@@ -89,16 +120,162 @@ def normalize_text(text: str) -> str:
     return _WS.sub(" ", text.strip())
 
 
-def score_completion(predicted: str, expected: str) -> tuple[bool, bool]:
-    """Return ``(exact_match, prefix_match)`` after normalization."""
+def _words(text: str) -> list[str]:
+    """Whitespace tokens after normalization (empty string → empty list)."""
+    normalized = normalize_text(text)
+    if not normalized:
+        return []
+    return normalized.split(" ")
+
+
+def levenshtein(a: str, b: str) -> int:
+    """Classic edit distance (insert / delete / substitute)."""
+    if a == b:
+        return 0
+    if not a:
+        return len(b)
+    if not b:
+        return len(a)
+    # Keep only the previous row to save memory on longer completions.
+    prev = list(range(len(b) + 1))
+    for i, ca in enumerate(a, start=1):
+        cur = [i]
+        for j, cb in enumerate(b, start=1):
+            ins = cur[j - 1] + 1
+            delete = prev[j] + 1
+            sub = prev[j - 1] + (0 if ca == cb else 1)
+            cur.append(min(ins, delete, sub))
+        prev = cur
+    return prev[-1]
+
+
+def char_similarity(predicted: str, expected: str) -> float:
+    """``1 - lev / max(len)`` on normalized strings (1.0 = identical)."""
+    pred = normalize_text(predicted)
+    exp = normalize_text(expected)
+    if not pred and not exp:
+        return 1.0
+    denom = max(len(pred), len(exp))
+    if denom == 0:
+        return 1.0
+    return 1.0 - (levenshtein(pred, exp) / denom)
+
+
+def token_f1(predicted: str, expected: str) -> float:
+    """Bag-of-words F1 over whitespace tokens after normalization."""
+    pred_toks = _words(predicted)
+    exp_toks = _words(expected)
+    if not pred_toks and not exp_toks:
+        return 1.0
+    if not pred_toks or not exp_toks:
+        return 0.0
+    pred_counts = Counter(pred_toks)
+    exp_counts = Counter(exp_toks)
+    overlap = sum((pred_counts & exp_counts).values())
+    if overlap == 0:
+        return 0.0
+    precision = overlap / len(pred_toks)
+    recall = overlap / len(exp_toks)
+    return 2.0 * precision * recall / (precision + recall)
+
+
+def _lcs_length(a: list[str], b: list[str]) -> int:
+    """Length of the longest common subsequence of two token lists."""
+    if not a or not b:
+        return 0
+    # DP row over b; O(len(a) * len(b)) time, O(len(b)) memory.
+    prev = [0] * (len(b) + 1)
+    for tok_a in a:
+        cur = [0]
+        for j, tok_b in enumerate(b, start=1):
+            if tok_a == tok_b:
+                cur.append(prev[j - 1] + 1)
+            else:
+                cur.append(max(prev[j], cur[-1]))
+        prev = cur
+    return prev[-1]
+
+
+def rouge_l_f1(predicted: str, expected: str) -> float:
+    """ROUGE-L F1 over whitespace tokens (LCS-based)."""
+    pred_toks = _words(predicted)
+    exp_toks = _words(expected)
+    if not pred_toks and not exp_toks:
+        return 1.0
+    if not pred_toks or not exp_toks:
+        return 0.0
+    lcs = _lcs_length(pred_toks, exp_toks)
+    if lcs == 0:
+        return 0.0
+    precision = lcs / len(pred_toks)
+    recall = lcs / len(exp_toks)
+    return 2.0 * precision * recall / (precision + recall)
+
+
+def score_completion(predicted: str, expected: str) -> TextScores:
+    """Exact/prefix hits plus continuous text-similarity scores."""
     pred = normalize_text(predicted)
     exp = normalize_text(expected)
     if not exp:
         exact = pred == ""
-        return exact, exact
+        sim = 1.0 if exact else 0.0
+        return TextScores(
+            exact=exact,
+            prefix=exact,
+            char_sim=sim,
+            token_f1=sim,
+            rouge_l=sim,
+        )
     exact = pred == exp
     prefix = pred.startswith(exp)
-    return exact, prefix
+    return TextScores(
+        exact=exact,
+        prefix=prefix,
+        char_sim=char_similarity(pred, exp),
+        token_f1=token_f1(pred, exp),
+        rouge_l=rouge_l_f1(pred, exp),
+    )
+
+
+@torch.inference_mode()
+def expected_completion_loss(
+    model: PreTrainedModel,
+    tokenizer: PreTrainedTokenizerBase,
+    prompt: str,
+    expected: str,
+    device: str,
+    *,
+    add_special_tokens: bool,
+) -> float | None:
+    """Teacher-forced mean CE loss of ``expected`` given ``prompt``.
+
+    Matches the training eval signal (``eval_loss``): cross-entropy averaged
+    over expected-completion tokens only. Returns ``None`` when there are no
+    completion tokens to score.
+    """
+    if not expected:
+        return None
+    target = torch_device(device)
+    prompt_ids = tokenizer(
+        prompt,
+        add_special_tokens=add_special_tokens,
+        return_tensors="pt",
+    )["input_ids"]
+    completion_ids = tokenizer(
+        expected,
+        add_special_tokens=False,
+        return_tensors="pt",
+    )["input_ids"]
+    if completion_ids.shape[1] == 0:
+        return None
+    input_ids = torch.cat([prompt_ids, completion_ids], dim=1).to(target)
+    labels = input_ids.clone()
+    labels[:, : prompt_ids.shape[1]] = -100
+    outputs = model(input_ids=input_ids, labels=labels)
+    loss = outputs.loss
+    if loss is None:
+        return None
+    return float(loss.item())
 
 
 def load_eval_items(path: Path | str) -> list[EvalItem]:
@@ -188,6 +365,12 @@ def results_path(manifest: Manifest, evals_path: Path, *, when: datetime | None 
     return evals_output_dir(manifest) / f"{stem}-{stamp}.json"
 
 
+def _mean(values: list[float]) -> float | None:
+    if not values:
+        return None
+    return sum(values) / len(values)
+
+
 def build_report(
     *,
     run_name: str,
@@ -199,10 +382,13 @@ def build_report(
     items: list[ItemResult],
     timestamp: str | None = None,
 ) -> EvalReport:
-    """Assemble aggregate rates from per-item results."""
+    """Assemble aggregate rates and mean scores from per-item results."""
     n = len(items)
     exact_count = sum(1 for item in items if item.exact)
     prefix_count = sum(1 for item in items if item.prefix)
+    losses = [item.loss for item in items if item.loss is not None]
+    mean_loss = _mean(losses)
+    mean_ppl = math.exp(mean_loss) if mean_loss is not None else None
     return EvalReport(
         run_name=run_name,
         zdeck=zdeck,
@@ -217,6 +403,11 @@ def build_report(
         prefix_count=prefix_count,
         exact_rate=(exact_count / n) if n else 0.0,
         prefix_rate=(prefix_count / n) if n else 0.0,
+        mean_loss=mean_loss,
+        mean_ppl=mean_ppl,
+        mean_char_sim=_mean([item.char_sim for item in items]) or 0.0,
+        mean_token_f1=_mean([item.token_f1 for item in items]) or 0.0,
+        mean_rouge_l=_mean([item.rouge_l for item in items]) or 0.0,
         items=tuple(items),
     )
 
@@ -237,8 +428,16 @@ def relative_output_path(path: Path | str) -> str:
     return f"./{rel.as_posix()}"
 
 
+def _hit_label(exact: bool, prefix: bool) -> str:
+    if exact:
+        return "exact"
+    if prefix:
+        return "prefix"
+    return "miss"
+
+
 def log_eval_summary(report: EvalReport, *, results_file: Path | str | None = None) -> None:
-    """Print a compact exact/prefix summary to the package logger."""
+    """Print hit rates plus mean loss / similarity rollups."""
     blank(logger=log)
     step("Eval summary", logger=log)
     detail(f"items:        {report.n}", logger=log)
@@ -252,6 +451,17 @@ def log_eval_summary(report: EvalReport, *, results_file: Path | str | None = No
         f"({100.0 * report.prefix_rate:.1f}%)",
         logger=log,
     )
+    if report.mean_loss is not None and report.mean_ppl is not None:
+        detail(
+            f"mean loss:    {report.mean_loss:.4f}  "
+            f"(ppl {report.mean_ppl:.2f})",
+            logger=log,
+        )
+    else:
+        detail("mean loss:    n/a", logger=log)
+    detail(f"mean char_sim: {report.mean_char_sim:.4f}", logger=log)
+    detail(f"mean token_f1: {report.mean_token_f1:.4f}", logger=log)
+    detail(f"mean rouge_l:  {report.mean_rouge_l:.4f}", logger=log)
     if results_file is not None:
         detail(f"results:      {relative_output_path(results_file)}", logger=log)
 
@@ -300,18 +510,43 @@ def run_completion_eval(
         completion = generate_completion_result(
             model, tokenizer, item.prompt, device, gen
         )
-        exact, prefix = score_completion(completion.text, item.completion)
+        scores = score_completion(completion.text, item.completion)
+        loss = expected_completion_loss(
+            model,
+            tokenizer,
+            item.prompt,
+            item.completion,
+            device,
+            add_special_tokens=gen.add_special_tokens,
+        )
+        ppl = math.exp(loss) if loss is not None else None
         results.append(
             ItemResult(
                 slug=item.slug,
                 predicted=completion.text,
-                exact=exact,
-                prefix=prefix,
+                exact=scores.exact,
+                prefix=scores.prefix,
                 n_tokens=completion.n_tokens,
+                loss=loss,
+                ppl=ppl,
+                char_sim=scores.char_sim,
+                token_f1=scores.token_f1,
+                rouge_l=scores.rouge_l,
             )
         )
-        mark = "exact" if exact else ("prefix" if prefix else "miss")
-        log.info("[%s/%s] %s — %s", index, len(items), item.slug, mark)
+        hit = _hit_label(scores.exact, scores.prefix)
+        loss_part = f" loss={loss:.3f}" if loss is not None else ""
+        log.info(
+            "[%s/%s] %s — %s  char=%.3f tok_f1=%.3f rouge_l=%.3f%s",
+            index,
+            len(items),
+            item.slug,
+            hit,
+            scores.char_sim,
+            scores.token_f1,
+            scores.rouge_l,
+            loss_part,
+        )
 
     when = datetime.now(timezone.utc)
     report = build_report(
