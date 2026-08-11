@@ -12,6 +12,7 @@ import pytest
 from alien_ink.hf.eval import (
     EvalItem,
     ItemResult,
+    build_completion_eval_dataset,
     build_report,
     char_similarity,
     load_eval_items,
@@ -23,6 +24,7 @@ from alien_ink.hf.eval import (
     score_completion,
     suggest_max_new_tokens,
     token_f1,
+    tokenize_prompt_completion,
 )
 from alien_ink.hf.manifest import Manifest
 from alien_ink.hf.model import gpt2_arch
@@ -145,6 +147,69 @@ def test_load_eval_items_ok(tmp_path: Path):
         prompt="The capital of Texas is",
         completion="Austin.",
     )
+
+
+class _FakeEvalTok:
+    """Minimal tokenizer: prompt chars → ids 1..n, completion chars → 100+."""
+
+    def __call__(self, text, *, add_special_tokens=True, return_tensors=None):
+        del return_tensors
+        if add_special_tokens:
+            ids = [1] + [ord(ch) % 40 + 2 for ch in text]
+        else:
+            ids = [100 + (ord(ch) % 40) for ch in text]
+        return {"input_ids": ids}
+
+
+def test_tokenize_prompt_completion_masks_prompt():
+    tok = _FakeEvalTok()
+    encoded = tokenize_prompt_completion(
+        tok,
+        "Hi",
+        "Yo",
+        add_special_tokens=True,
+    )
+    assert encoded is not None
+    prompt_len = len(tok("Hi", add_special_tokens=True)["input_ids"])
+    completion_ids = tok("Yo", add_special_tokens=False)["input_ids"]
+    assert encoded["labels"][:prompt_len] == [-100] * prompt_len
+    assert encoded["labels"][prompt_len:] == completion_ids
+    assert encoded["input_ids"] == (
+        tok("Hi", add_special_tokens=True)["input_ids"] + completion_ids
+    )
+    assert encoded["attention_mask"] == [1] * len(encoded["input_ids"])
+
+
+def test_tokenize_prompt_completion_empty_completion():
+    tok = _FakeEvalTok()
+    assert tokenize_prompt_completion(tok, "Hi", "", add_special_tokens=True) is None
+
+
+def test_build_completion_eval_dataset(tmp_path: Path):
+    path = tmp_path / "pop.json"
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "slug": "alabama-has-population",
+                    "sentence": "Alabama has a population of 10,000.",
+                    "prompt": "Alabama has a population of",
+                    "completion": "10,000.",
+                },
+                {
+                    "slug": "alaska-has-population",
+                    "prompt": "Alaska has a population of",
+                    "completion": "740,133.",
+                },
+            ]
+        ),
+        encoding="utf-8",
+    )
+    ds = build_completion_eval_dataset(path, _FakeEvalTok(), add_special_tokens=True)
+    assert len(ds) == 2
+    assert "input_ids" in ds.column_names and "labels" in ds.column_names
+    assert ds[0]["labels"].count(-100) > 0
+    assert any(label != -100 for label in ds[0]["labels"])
 
 
 def test_load_eval_items_rejects_bad_shape(tmp_path: Path):

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import itertools
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Literal
 
 from datasets import Dataset, IterableDataset, load_dataset
@@ -43,9 +44,14 @@ class HubTextSource:
 class PretrainDataConfig:
     """How to load a Hub text corpus and pack it for causal LM pretraining.
 
-    If ``eval_source`` is set, eval rows are taken from that split (capped by
-    ``max_eval_samples``). Otherwise the first ``max_eval_samples`` rows of the
-    train stream/split are held out so train/eval do not overlap.
+    If ``completion_eval_path`` is set, Trainer eval comes from that external
+    prompt/completion JSON (loaded at runtime) and the full train split is
+    used — no Hub hold-out. ``eval_source`` / ``max_eval_samples`` are ignored
+    for building the Trainer eval set.
+
+    Otherwise: if ``eval_source`` is set, eval rows are taken from that split
+    (capped by ``max_eval_samples``). Else the first ``max_eval_samples`` rows
+    of the train stream/split are held out so train/eval do not overlap.
 
     ``mode``:
       - ``stream``   — train is streamed; ``max_train_samples`` must be ``None``
@@ -61,6 +67,7 @@ class PretrainDataConfig:
 
     source: HubTextSource
     eval_source: HubTextSource | None = None
+    completion_eval_path: str | None = None
     mode: LoadMode = "stream"
     max_eval_samples: int = 1_000
     max_train_samples: int | None = None
@@ -75,7 +82,13 @@ class PretrainDataConfig:
             raise ValueError(
                 f"mode must be one of stream, subset, complete; got {self.mode!r}"
             )
-        if self.max_eval_samples < 1:
+        if self.completion_eval_path is not None:
+            path = Path(self.completion_eval_path)
+            if not str(self.completion_eval_path).strip():
+                raise ValueError("completion_eval_path must be a non-empty path")
+            if not path.is_file():
+                raise ValueError(f"completion_eval_path does not exist: {path}")
+        elif self.max_eval_samples < 1:
             raise ValueError(
                 f"max_eval_samples must be >= 1, got {self.max_eval_samples}"
             )
@@ -386,6 +399,16 @@ def _source_label(source: HubTextSource) -> str:
     return source.dataset
 
 
+def uses_completion_eval(data: PretrainDataConfig) -> bool:
+    """True when Trainer eval comes from an external prompt/completion JSON."""
+    return data.completion_eval_path is not None
+
+
+def _empty_hub_eval(text_column: str) -> Dataset:
+    """Placeholder Hub eval when completion JSON supplies Trainer eval instead."""
+    return Dataset.from_dict({text_column: []})
+
+
 def load_streaming_train_eval(
     data: PretrainDataConfig,
     *,
@@ -408,6 +431,23 @@ def load_streaming_train_eval(
         step(f"Streaming {_source_label(source)} [{source.split}]...", logger=log)
 
     train_stream = stream_hub_text(source, trust_remote_code=trust_remote_code)
+
+    if uses_completion_eval(data):
+        train_stream = shuffled_stream(
+            train_stream,
+            seed=data.seed,
+            buffer_size=data.stream_shuffle_buffer,
+        )
+        if verbose:
+            detail(
+                f"eval: deferred to completion JSON ({data.completion_eval_path})",
+                logger=log,
+            )
+            detail(
+                f"train examples: {_source_label(source)} (streaming, no hold-out)",
+                logger=log,
+            )
+        return train_stream, _empty_hub_eval(source.text_column)
 
     if data.eval_source is not None:
         eval_source = data.eval_source
@@ -492,6 +532,20 @@ def load_materialized_train_eval(
 
     train_stream = stream_hub_text(source, trust_remote_code=trust_remote_code)
 
+    if uses_completion_eval(data):
+        train_dataset = materialize_prefix(train_stream, n_train)
+        train_dataset = train_dataset.shuffle(seed=data.seed)
+        if verbose:
+            detail(
+                f"eval: deferred to completion JSON ({data.completion_eval_path})",
+                logger=log,
+            )
+            detail(
+                f"train examples: {len(train_dataset):,} (materialized subset, no hold-out)",
+                logger=log,
+            )
+        return train_dataset, _empty_hub_eval(source.text_column)
+
     if data.eval_source is not None:
         eval_source = data.eval_source
         if verbose:
@@ -555,6 +609,19 @@ def load_complete_train_eval(
             logger=log,
         )
     train_full = load_hub_text(source, trust_remote_code=trust_remote_code)
+
+    if uses_completion_eval(data):
+        train_dataset = train_full.shuffle(seed=data.seed)
+        if verbose:
+            detail(
+                f"eval: deferred to completion JSON ({data.completion_eval_path})",
+                logger=log,
+            )
+            detail(
+                f"train examples: {len(train_dataset):,} (complete, no hold-out)",
+                logger=log,
+            )
+        return train_dataset, _empty_hub_eval(source.text_column)
 
     if data.eval_source is not None:
         eval_source = data.eval_source

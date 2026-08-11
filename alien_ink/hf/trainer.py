@@ -10,7 +10,6 @@ from pathlib import Path
 from typing import Any
 
 from transformers import (
-    DataCollatorForLanguageModeling,
     EarlyStoppingCallback,
     Trainer,
     TrainerCallback,
@@ -437,8 +436,37 @@ def build_training_arguments(
     return TrainingArguments(**args)
 
 
-def build_lm_data_collator(tokenizer) -> DataCollatorForLanguageModeling:
-    return DataCollatorForLanguageModeling(tokenizer=tokenizer, mlm=False)
+def build_lm_data_collator(tokenizer):
+    """Pad causal-LM features while preserving precomputed ``labels``.
+
+    Packed train blocks set ``labels = input_ids``; completion-eval rows mask
+    the prompt with ``-100``. Hugging Face's
+    ``DataCollatorForLanguageModeling(mlm=False)`` always overwrites labels
+    from ``input_ids``, which would destroy that mask — so pad labels with
+    ``-100`` when they are already present.
+    """
+    import torch
+
+    def collate(features: list[dict[str, Any]]) -> dict[str, Any]:
+        if not features:
+            raise ValueError("cannot collate an empty feature list")
+        has_labels = "labels" in features[0]
+        labels_list = [feature.pop("labels") for feature in features] if has_labels else None
+        batch = tokenizer.pad(features, return_tensors="pt")
+        if labels_list is not None:
+            max_len = int(batch["input_ids"].shape[1])
+            padded = [
+                list(labels) + [-100] * (max_len - len(labels)) for labels in labels_list
+            ]
+            batch["labels"] = torch.tensor(padded, dtype=torch.long)
+        else:
+            labels = batch["input_ids"].clone()
+            if tokenizer.pad_token_id is not None:
+                labels[labels == tokenizer.pad_token_id] = -100
+            batch["labels"] = labels
+        return batch
+
+    return collate
 
 
 def build_trainer_callbacks(

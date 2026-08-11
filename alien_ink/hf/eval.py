@@ -256,26 +256,86 @@ def expected_completion_loss(
     if not expected:
         return None
     target = torch_device(device)
-    prompt_ids = tokenizer(
+    encoded = tokenize_prompt_completion(
+        tokenizer,
         prompt,
-        add_special_tokens=add_special_tokens,
-        return_tensors="pt",
-    )["input_ids"]
-    completion_ids = tokenizer(
         expected,
-        add_special_tokens=False,
-        return_tensors="pt",
-    )["input_ids"]
-    if completion_ids.shape[1] == 0:
+        add_special_tokens=add_special_tokens,
+    )
+    if encoded is None:
         return None
-    input_ids = torch.cat([prompt_ids, completion_ids], dim=1).to(target)
-    labels = input_ids.clone()
-    labels[:, : prompt_ids.shape[1]] = -100
+    input_ids = torch.tensor([encoded["input_ids"]], dtype=torch.long, device=target)
+    labels = torch.tensor([encoded["labels"]], dtype=torch.long, device=target)
     outputs = model(input_ids=input_ids, labels=labels)
     loss = outputs.loss
     if loss is None:
         return None
     return float(loss.item())
+
+
+def tokenize_prompt_completion(
+    tokenizer: PreTrainedTokenizerBase,
+    prompt: str,
+    completion: str,
+    *,
+    add_special_tokens: bool,
+) -> dict[str, list[int]] | None:
+    """Tokenize one prompt/completion pair with prompt tokens masked in labels.
+
+    Same masking contract as :func:`expected_completion_loss`: ``labels`` are
+    ``-100`` over the prompt span and real ids over the completion. Returns
+    ``None`` when the completion encodes to zero tokens.
+    """
+    if not completion:
+        return None
+    prompt_ids = tokenizer(
+        prompt,
+        add_special_tokens=add_special_tokens,
+    )["input_ids"]
+    completion_ids = tokenizer(
+        completion,
+        add_special_tokens=False,
+    )["input_ids"]
+    if not completion_ids:
+        return None
+    input_ids = list(prompt_ids) + list(completion_ids)
+    labels = [-100] * len(prompt_ids) + list(completion_ids)
+    return {
+        "input_ids": input_ids,
+        "labels": labels,
+        "attention_mask": [1] * len(input_ids),
+    }
+
+
+def build_completion_eval_dataset(
+    path: Path | str,
+    tokenizer: PreTrainedTokenizerBase,
+    *,
+    add_special_tokens: bool = True,
+):
+    """Map-style Dataset of masked prompt/completion rows from an eval JSON.
+
+    Eval file contents are read at runtime and never copied into the run
+    output. Rows with empty completion encodings are skipped.
+    """
+    from datasets import Dataset
+
+    items = load_eval_items(path)
+    rows: list[dict[str, list[int]]] = []
+    for item in items:
+        encoded = tokenize_prompt_completion(
+            tokenizer,
+            item.prompt,
+            item.completion,
+            add_special_tokens=add_special_tokens,
+        )
+        if encoded is not None:
+            rows.append(encoded)
+    if not rows:
+        raise ValueError(
+            f"no scorable completion tokens in eval file: {path}"
+        )
+    return Dataset.from_list(rows)
 
 
 def load_eval_items(path: Path | str) -> list[EvalItem]:

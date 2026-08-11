@@ -22,7 +22,7 @@ from alien_ink.com.device import (
 )
 from alien_ink.com.env import load_env
 from alien_ink.hf.curriculum import Curriculum, prepare_curriculum_datasets
-from alien_ink.hf.ds import PretrainDataConfig, load_train_eval
+from alien_ink.hf.ds import PretrainDataConfig, load_train_eval, uses_completion_eval
 from alien_ink.hf.metrics import (
     build_run_config_payload,
     collect_software_versions,
@@ -116,12 +116,19 @@ def prepare_lm_datasets(
     tokenizer,
     *,
     verbose: bool = True,
+    add_special_tokens: bool = True,
 ):
     """Load/tokenize a Hub corpus into train and eval LM blocks.
 
     Train is an iterable stream when ``mode='stream'``, otherwise a
     materialized map-style dataset. Eval is always map-style.
+
+    When ``data.completion_eval_path`` is set, train uses the full Hub split
+    (no hold-out) and eval is teacher-forced prompt/completion rows from that
+    JSON, with prompt tokens masked in ``labels``.
     """
+    from alien_ink.hf.eval import build_completion_eval_dataset
+
     train_raw, eval_raw = load_train_eval(data, verbose=verbose)
     if verbose:
         blank(logger=log)
@@ -130,7 +137,6 @@ def prepare_lm_datasets(
         else:
             step("Preprocessing datasets...", logger=log)
     train_text_column = data.source.text_column
-    eval_text_column = (data.eval_source or data.source).text_column
     train_dataset = tokenize_and_chunk(
         train_raw,
         tokenizer,
@@ -139,6 +145,25 @@ def prepare_lm_datasets(
         respect_document_boundaries=data.respect_document_boundaries,
         num_proc=data.tokenizer_num_proc,
     )
+    if uses_completion_eval(data):
+        assert data.completion_eval_path is not None
+        if verbose:
+            step(
+                f"Building completion eval from {data.completion_eval_path}...",
+                logger=log,
+            )
+        eval_dataset = build_completion_eval_dataset(
+            data.completion_eval_path,
+            tokenizer,
+            add_special_tokens=add_special_tokens,
+        )
+        if verbose:
+            if not isinstance(train_dataset, IterableDataset):
+                detail(f"train blocks: {len(train_dataset):,}", logger=log)
+            detail(f"eval examples: {len(eval_dataset):,} (completion JSON)", logger=log)
+        return train_dataset, eval_dataset
+
+    eval_text_column = (data.eval_source or data.source).text_column
     eval_dataset = tokenize_and_chunk(
         eval_raw,
         tokenizer,

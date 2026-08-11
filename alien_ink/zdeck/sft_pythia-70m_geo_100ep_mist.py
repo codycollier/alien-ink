@@ -7,8 +7,10 @@ scout table — via ``AutoModelForCausalLM`` and continues causal-LM training on
 the complete geo-us-states corpus for 100 epochs. Tiny base + long epoch budget
 is deliberate: enough passes to absorb the 56-document corpus while staying
 cheap on an RTX 3070. Correctness before throughput: ``torch.compile`` off,
-gradient checkpointing on. Every manifest field is spelled out below for
-reproducibility — change values in place, do not rely on module defaults.
+gradient checkpointing on. Trainer eval is teacher-forced completion NLL from
+an external population JSON (``completion_eval_path``), not a Hub hold-out.
+Every manifest field is spelled out below for reproducibility — change values
+in place, do not rely on module defaults.
 
 Swap ``model_name`` for any other Hub base or a local ``output/train/<run>``
 checkpoint, and/or retarget ``data.source.dataset`` to any Hub text corpus
@@ -44,9 +46,11 @@ MANIFEST = Manifest(
         ),
         eval_source=None,
         mode="complete",
-        # 56 long documents total; hold out just a few states for eval.
-        max_eval_samples=4,
+        # Full train split; Trainer eval is teacher-forced completion NLL
+        # from the external population JSON (not a Hub hold-out).
+        max_eval_samples=1,
         max_train_samples=None,
+        completion_eval_path="/tmp/population-basic/geo-us-states.json",
         stream_shuffle_buffer=10_000,
         block_size=1024,
         respect_document_boundaries=True,

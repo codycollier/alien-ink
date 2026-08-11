@@ -18,6 +18,7 @@ from alien_ink.hf.model import CausalLmArchConfig  # noqa: E402
 from alien_ink.hf.trainer import (  # noqa: E402
     CausalLmTrainerConfig,
     apply_epoch_cadence,
+    build_lm_data_collator,
     epoch_cadence_steps,
     optimizer_steps_per_epoch,
     reporting_disabled,
@@ -264,3 +265,65 @@ def test_apply_epoch_cadence_updates_config(tmp_path: Path):
     # Step-capped configs are left alone.
     stepped = CausalLmTrainerConfig(output_dir=tmp_path / "out", max_steps=1_000)
     assert apply_epoch_cadence(stepped, num_train_examples=640) is stepped
+
+
+class _PadTok:
+    pad_token_id = 0
+
+    def pad(self, features, *, return_tensors="pt"):
+        import torch
+
+        assert return_tensors == "pt"
+        max_len = max(len(f["input_ids"]) for f in features)
+        input_ids = []
+        attention_mask = []
+        for feature in features:
+            ids = list(feature["input_ids"])
+            pad_len = max_len - len(ids)
+            input_ids.append(ids + [self.pad_token_id] * pad_len)
+            mask = list(feature.get("attention_mask", [1] * len(ids)))
+            attention_mask.append(mask + [0] * pad_len)
+        return {
+            "input_ids": torch.tensor(input_ids, dtype=torch.long),
+            "attention_mask": torch.tensor(attention_mask, dtype=torch.long),
+        }
+
+
+def test_lm_collator_preserves_prompt_mask():
+    collate = build_lm_data_collator(_PadTok())
+    batch = collate(
+        [
+            {
+                "input_ids": [10, 11, 12, 13],
+                "attention_mask": [1, 1, 1, 1],
+                "labels": [-100, -100, 12, 13],
+            },
+            {
+                "input_ids": [20, 21],
+                "attention_mask": [1, 1],
+                "labels": [-100, 21],
+            },
+        ]
+    )
+    assert batch["labels"].tolist() == [
+        [-100, -100, 12, 13],
+        [-100, 21, -100, -100],
+    ]
+    assert batch["input_ids"].tolist() == [
+        [10, 11, 12, 13],
+        [20, 21, 0, 0],
+    ]
+
+
+def test_lm_collator_clones_input_ids_without_labels():
+    collate = build_lm_data_collator(_PadTok())
+    batch = collate(
+        [
+            {"input_ids": [10, 11, 12], "attention_mask": [1, 1, 1]},
+            {"input_ids": [20], "attention_mask": [1]},
+        ]
+    )
+    assert batch["labels"].tolist() == [
+        [10, 11, 12],
+        [20, -100, -100],
+    ]

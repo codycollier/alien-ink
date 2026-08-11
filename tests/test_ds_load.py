@@ -20,6 +20,7 @@ from alien_ink.hf.ds import (  # noqa: E402
     load_materialized_train_eval,
     load_streaming_train_eval,
     load_train_eval,
+    uses_completion_eval,
     wikipedia_english,
     wikipedia_english_complete,
     wikipedia_english_subset,
@@ -260,3 +261,69 @@ def test_pretrain_data_config_validate():
             source=HubTextSource(dataset="Salesforce/wikitext"),
             max_train_samples=0,
         ).validate()
+
+
+def test_completion_eval_path_validate(tmp_path):
+    missing = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy"),
+        completion_eval_path=str(tmp_path / "missing.json"),
+        max_eval_samples=1,
+    )
+    with pytest.raises(ValueError, match="does not exist"):
+        missing.validate()
+
+    path = tmp_path / "evals.json"
+    path.write_text("[]", encoding="utf-8")
+    ok = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy"),
+        completion_eval_path=str(path),
+        max_eval_samples=1,
+    )
+    ok.validate()
+    assert uses_completion_eval(ok)
+
+
+def test_load_complete_skips_hold_out_with_completion_eval(tmp_path):
+    path = tmp_path / "evals.json"
+    path.write_text("[]", encoding="utf-8")
+    train_rows = _rows("t", 6)
+    cfg = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy", split="train"),
+        mode="complete",
+        max_eval_samples=2,
+        completion_eval_path=str(path),
+        seed=0,
+    )
+
+    with patch(
+        "alien_ink.hf.ds.load_hub_text",
+        return_value=Dataset.from_list(train_rows),
+    ):
+        train_ds, eval_ds = load_complete_train_eval(cfg, verbose=False)
+
+    assert len(train_ds) == 6
+    assert len(eval_ds) == 0
+    assert set(train_ds["text"]) == {f"t-{i}" for i in range(6)}
+
+
+def test_load_materialized_skips_hold_out_with_completion_eval(tmp_path):
+    path = tmp_path / "evals.json"
+    path.write_text("[]", encoding="utf-8")
+    train_rows = _rows("t", 10)
+    cfg = PretrainDataConfig(
+        source=HubTextSource(dataset="dummy", split="train"),
+        mode="subset",
+        max_eval_samples=2,
+        max_train_samples=5,
+        completion_eval_path=str(path),
+        seed=0,
+    )
+
+    with patch(
+        "alien_ink.hf.ds.stream_hub_text",
+        return_value=_iterable(train_rows),
+    ):
+        train_ds, eval_ds = load_materialized_train_eval(cfg, verbose=False)
+
+    assert len(train_ds) == 5
+    assert len(eval_ds) == 0
