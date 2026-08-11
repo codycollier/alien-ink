@@ -44,6 +44,7 @@ __all__ = [
     "build_training_arguments",
     "epoch_cadence_steps",
     "has_eval_examples",
+    "ModuleKeyedTrainer",
     "optimizer_steps_per_epoch",
     "reporting_disabled",
     "save_model_and_tokenizer",
@@ -469,6 +470,31 @@ def build_lm_data_collator(tokenizer):
     return collate
 
 
+class ModuleKeyedTrainer(Trainer):
+    """``Trainer`` that saves weights under module names, not legacy Hub keys.
+
+    transformers v5 re-saves legacy key names by default (e.g. GPT-NeoX
+    ``lm_head`` back to ``embed_out``), but the Trainer's raw state-dict
+    loads for ``load_best_model_at_end`` and ``resume_from_checkpoint`` skip
+    the rename mapping — mismatched weights (like the LM head) are silently
+    dropped. Saving module-named keys keeps both paths correct;
+    ``from_pretrained`` loads either format.
+    """
+
+    def _save(self, output_dir=None, state_dict=None) -> None:
+        original = self.model.save_pretrained
+
+        def save_pretrained(*args, **kwargs):
+            kwargs["save_original_format"] = False
+            return original(*args, **kwargs)
+
+        self.model.save_pretrained = save_pretrained
+        try:
+            super()._save(output_dir, state_dict=state_dict)
+        finally:
+            del self.model.__dict__["save_pretrained"]
+
+
 def build_trainer_callbacks(
     config: CausalLmTrainerConfig,
     *,
@@ -522,7 +548,7 @@ def build_causal_lm_trainer(
         eval_arg = dict(eval_dataset)
     else:
         eval_arg = eval_dataset
-    return Trainer(
+    return ModuleKeyedTrainer(
         model=model,
         args=args,
         train_dataset=train_dataset,

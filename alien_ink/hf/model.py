@@ -15,6 +15,7 @@ from dataclasses import dataclass
 from pathlib import Path
 from typing import Literal
 
+import torch
 from transformers import (
     AutoModelForCausalLM,
     AutoTokenizer,
@@ -569,6 +570,12 @@ def load_hub_model_and_tokenizer(
         step(f"Loading pretrained model ({config.model_name})...", logger=log)
     model = AutoModelForCausalLM.from_pretrained(
         config.model_name,
+        # Hub checkpoints may serialize half precision (e.g. Pythia ships
+        # fp16, and transformers v5 honors the serialized dtype by default).
+        # Training needs fp32 master weights under the Trainer's bf16/fp16
+        # autocast — fp16 weights make fused AdamW's eps/second-moment
+        # updates degenerate and the run slowly diverges into NaN.
+        dtype=torch.float32,
         attn_implementation=config.attention_implementation,
         trust_remote_code=config.trust_remote_code,
     )
