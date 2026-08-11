@@ -17,20 +17,21 @@ family: they load generically through `PretrainedLmConfig` +
 
 ## At a glance
 
-| | GPT-2 | GPT-NeoX | Gemma (Mist) |
-|---|---|---|---|
-| **`family` string** | `gpt-2` | `gpt-neox` | `gemma` |
-| **HF class** | `GPT2LMHeadModel` | `GPTNeoXForCausalLM` | `GemmaForCausalLM` |
-| **Factory** | `gpt2_arch()` | `gpt_neox_arch()` | `gemma_arch()` |
-| **Default tokenizer** | `gpt2` | `EleutherAI/gpt-neox-20b` | `google/gemma-2b` |
-| **Tokenizer type** | Byte-level BPE | BPE (NeoX) | SentencePiece |
-| **Vocab size** | ~50,257 | ~50,432 | ~256,000 |
-| **Mist layers / width** | 12 / 768 | 12 / 768 | 8 / 512 |
-| **Mist heads** | 12 | 12 | 8 (`head_dim=64`) |
-| **Context (`n_positions`)** | 1024 | 1024 | 1024 |
-| **MLP width** | ~4× embd (HF default) | `4 * n_embd` | 2048 |
-| **Params (Mist, approx.)** | **~124M** | **~163M** | **~165M** |
-| **Zdeck programs** | WikiText, Wikipedia | WikiText baseline / 3 ep / 4 ep | WikiText baseline / 4 ep; C4 5k / 50k |
+| | GPT-2 | GPT-NeoX | Pythia-160M | SmolLM2-135M | Gemma (Mist) |
+|---|---|---|---|---|---|
+| **`family` string** | `gpt-2` | `gpt-neox` | `pythia` | `llama` | `gemma` |
+| **HF class** | `GPT2LMHeadModel` | `GPTNeoXForCausalLM` | `GPTNeoXForCausalLM` | `LlamaForCausalLM` | `GemmaForCausalLM` |
+| **Factory** | `gpt2_arch()` | `gpt_neox_arch()` | `pythia_160m_arch()` | `smollm2_135m_arch()` | `gemma_arch()` |
+| **Default tokenizer** | `gpt2` | `EleutherAI/gpt-neox-20b` | `EleutherAI/pythia-160m` | `HuggingFaceTB/SmolLM2-135M` | `google/gemma-2b` |
+| **Tokenizer type** | Byte-level BPE | BPE (NeoX) | BPE (NeoX) | BPE | SentencePiece |
+| **Vocab size** | ~50,257 | ~50,432 | ~50k | ~49k | ~256,000 |
+| **Layers / width** | 12 / 768 | 12 / 768 | 12 / 768 | 30 / 576 | 8 / 512 |
+| **Heads** | 12 | 12 | 12 | 9 (GQA, 3 KV) | 8 (`head_dim=64`) |
+| **Context (`n_positions`)** | 1024 | 1024 | 2048 | 2048 (Mist cap) | 1024 |
+| **MLP width** | ~4× embd (HF default) | `4 * n_embd` | 3072 | 1536 | 2048 |
+| **Params (approx.)** | **~124M** | **~163M** | **~162M** | **~135M** | **~165M** |
+| **Batch × accum (zdeck)** | 4 × 8 | 4 × 8 | 4 × 8 | 2 × 16 | 1 × 32 |
+| **Zdeck programs** | WikiText, Wikipedia | WikiText baseline / 3 ep / 4 ep; C4 5k; curriculum | WikiText 4 ep (70M and 160M) | WikiText 4 ep | WikiText baseline / 4 ep; C4 5k / 50k |
 
 Parameter counts depend on the exact tokenizer length after `load_tokenizer`.
 They include the LM head: GPT-2 and Gemma tie it to the input embedding, while
@@ -88,12 +89,14 @@ Approx. **124M** parameters with the `gpt2` vocab.
 
 | Setting | Value |
 |---|---:|
-| `per_device_train_batch_size` | 2 |
-| `gradient_accumulation_steps` | 16 |
+| `per_device_train_batch_size` | 4 |
+| `gradient_accumulation_steps` | 8 |
 | Effective batch (examples) | 32 |
 | Tokens / step @ 1024 | 32,768 |
 
-Fits comfortably on 8 GB with bf16/fp16 + gradient checkpointing.
+Fits comfortably on 8 GB with bf16/fp16 and gradient checkpointing **off**
+(the small vocab leaves headroom); turn checkpointing back on if a variant
+OOMs.
 
 ### Generation
 
@@ -128,8 +131,9 @@ GPT-2×C4 zdeck yet.
 ### Role in Alien Ink
 
 Supported end-to-end (build, train, load, generate), with WikiText baseline,
-3-epoch, and 4-epoch zdeck programs. Same Mist-oriented dims as GPT-2 for a
-fair architecture comparison.
+3-epoch, and 4-epoch programs, a C4 5k run, and the C4 → geo-us-states
+curriculum zdeck. Same Mist-oriented dims as GPT-2 for a fair architecture
+comparison.
 
 ### Mist architecture
 
@@ -306,8 +310,11 @@ matching how packed training mostly looks.
 |---|---|
 | C4 English | `gemma_c4_5k` (5k steps) |
 | C4 English | `gemma_c4_50k` (50k steps) |
+| WikiText-103 | `gemma_wikitext_4ep` (complete, 4 epochs) |
+| WikiText-103 | `baseline_perf_gemma` (0.25 epochs, perf baseline) |
 
-WikiText / Wikipedia are supported by the stack; C4 is the archived pairing.
+Wikipedia is supported by the stack; C4 and WikiText are the archived
+pairings.
 
 ### Characteristics
 
@@ -347,7 +354,7 @@ linearly in vocab size.
 |---|---|---|---|
 | **GPT-2** | ✓ zdeck | ✓ zdeck | supported |
 | **Gemma** | ✓ zdeck | supported | ✓ zdeck |
-| **GPT-NeoX** | ✓ zdeck | supported | supported |
+| **GPT-NeoX** | ✓ zdeck | supported | ✓ zdeck |
 | **Pythia** | ✓ zdeck | supported | supported |
 | **Llama (SmolLM2)** | ✓ zdeck | supported | supported |
 

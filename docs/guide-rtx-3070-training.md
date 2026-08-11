@@ -1,12 +1,14 @@
 # RTX 3070 training playbook
 
-Mist is an Ampere RTX 3070 with 8 GB of VRAM, third-generation Tensor Cores,
-and CUDA capability 8.6. Treat 7–7.5 GiB as the usable training budget; the
-driver, CUDA context, and temporary workspaces consume the rest.
+How to train well on Mist: an Ampere RTX 3070 with 8 GB of VRAM,
+third-generation Tensor Cores, and CUDA capability 8.6. Treat 7–7.5 GiB as
+the usable training budget; the driver, CUDA context, and temporary workspaces
+consume the rest. This guide gives the per-family batch settings, the
+reasoning behind them, and a disciplined benchmark sequence for changing them.
 
 The checked-in manifests already use the sound baseline: bf16 when available
 (fp16 fallback), TF32, fused AdamW, fixed 1024-token blocks, and an effective
-batch of 32. `CausalLmArchConfig` now selects PyTorch SDPA by default. On a
+batch of 32. `CausalLmArchConfig` selects PyTorch SDPA by default. On a
 CUDA shape and dtype supported by the hardware, SDPA automatically chooses its
 best fused backend (Flash or memory-efficient); otherwise it safely falls back.
 This makes the speed/memory improvement portable and requires no FlashAttention
@@ -18,6 +20,8 @@ build.
 |---|---:|---:|---:|---|
 | GPT-2 | ~124M | 4 × 8 | 75–100k steps | Fastest family; keep the 4-token microbatch only after an OOM smoke test. |
 | GPT-NeoX | ~163M | 4 × 8 | 100k steps | Its untied output head costs extra static VRAM; use 2 × 16 if the 4-token run is close to the limit. |
+| Pythia 70M / 160M | 70M / 160M | 4 × 8 | 100k steps | NeoX architecture at published shapes; same settings as NeoX. 70M is the fast-iteration option. |
+| Llama (SmolLM2-135M) | ~135M | 2 × 16 | 100k steps | 30 layers carry more activation memory than the 12-layer baselines; enable checkpointing before shrinking further. |
 | Gemma | ~165M | 1 × 32 | 100k steps | Leave checkpointing on; its 256k vocabulary makes logits and embeddings the limiting cost. |
 
 At a 1024 block size, every one of these schedules sees 32,768 tokens per

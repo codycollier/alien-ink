@@ -57,7 +57,8 @@ tokens_per_step = per_device_batch × gradient_accumulation × block_size
 
 | Zdeck | Batch × accum | Why |
 |---|---|---|
-| GPT-2 / NeoX | 4 × 8 | Larger micro-batch; checkpointing off on Mist |
+| GPT-2 / NeoX / Pythia | 4 × 8 | Larger micro-batch; checkpointing off on Mist |
+| SmolLM2-135M | 2 × 16 | 30-layer stack carries more activation memory |
 | Gemma (`gemma_c4_*`, `gemma_wikitext_4ep`) | 1 × 32 | Smaller micro-batch (256k vocab logits); ckpt on |
 
 Calibration (Mist Gemma C4): **~50,000 steps ≈ 48 h** (≈3.5 s/step). Scale

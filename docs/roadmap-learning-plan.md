@@ -1,4 +1,10 @@
-# Small language model learning plan
+# Roadmap: small language model learning plan
+
+**Status: living plan.** Track A (from-scratch pretraining) and Track B0
+(full-parameter SFT) are implemented; Track C (PEFT/LoRA/QLoRA) is not
+started. Follow-on roadmaps branch from here:
+[full fine-tuning on Mist](roadmap-full-finetune-mist.md) (active) and
+[large bases on Mist](roadmap-large-base-mist.md) (speculative).
 
 This plan moves Alien Ink through four increasingly practical stages on Mist:
 an RTX 3070 with 8 GB VRAM, 16 CPU cores, and 94 GB RAM.
@@ -33,7 +39,7 @@ and `HuggingFaceTB/SmolLM2-135M` on geo-us-states.
 
 The family definitions live in [`alien_ink/hf/model.py`](../alien_ink/hf/model.py),
 and the architecture comparison is documented in
-[`model-families.md`](model-families.md).
+[the model families reference](reference-model-families.md).
 
 The Gemma experiment is especially expensive for its size: its approximately
 256k vocabulary makes the embedding/head table and training logits large. The
@@ -43,7 +49,8 @@ Gemma-2B checkpoint.
 The current training playbook recommends 1024-token blocks and an effective
 batch of 32 blocks. GPT-2 and NeoX generally start at microbatch 4 with
 accumulation 8; Gemma starts at microbatch 1 with accumulation 32 and gradient
-checkpointing enabled. See [`rtx-3070-training.md`](rtx-3070-training.md).
+checkpointing enabled. See the
+[RTX 3070 training playbook](guide-rtx-3070-training.md).
 
 ## Track A: from-scratch pretraining
 
@@ -142,8 +149,8 @@ Add the following in small, composable pieces:
 - a small SFT zdeck with an explicit `stage="sft"`; **(done: `sft_pythia-160m_geo_mist`, `sft_smollm2-135m_geo_mist`)**
 - clear reporting of total and trainable parameter counts. **(done)**
 
-Do not make the fine-tuning path depend on the three hard-coded architecture
-branches used by the current from-scratch loader. Model families such as Qwen
+Do not make the fine-tuning path depend on the per-family architecture
+branches used by the from-scratch loader. Model families such as Qwen
 and SmolLM2 should be loadable through their serialized Hugging Face config.
 
 ### B1. Full fine-tune an Alien Ink checkpoint
@@ -228,6 +235,11 @@ project's declared minimum if it becomes a supported example.
 
 References: [Qwen2.5-0.5B](https://huggingface.co/Qwen/Qwen2.5-0.5B),
 [Qwen3-0.6B-Base](https://huggingface.co/Qwen/Qwen3-0.6B-Base).
+
+Newer base families (Granite 4.0 Nano, LFM2.5, MiniCPM5, Qwen3.5) are
+tracked in the [full fine-tuning roadmap's base model
+scout](roadmap-full-finetune-mist.md#base-model-scout), which is the living
+list; this section records the original plan.
 
 ### C2. Add quantized PEFT / QLoRA
 

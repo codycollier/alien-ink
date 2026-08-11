@@ -16,11 +16,11 @@ per value) unless noted. Optimizer moments stay in **fp32** (4 bytes).
 | Parameters (weights) | `P` | ~0.2 GiB | ~0.3 GiB |
 | Gradients | `P` | ~0.2 GiB | ~0.3 GiB |
 | AdamW state (+ master) | `P` | ~1.0–1.4 GiB | ~1.2–1.8 GiB |
-| Logits (LM head output) | `B × S × V` | ~0.2–0.4 GiB | ~0.5–1.0 GiB |
-| Activations (w/ checkpointing) | `B × S × H × L` | ~0.5–1.5 GiB | ~0.3–1.0 GiB |
+| Logits (LM head output) | `B × S × V` | ~0.4–0.8 GiB | ~0.5–1.0 GiB |
+| Activations (no ckpt / ckpt) | `B × S × H × L` | ~1.5–3.0 GiB | ~0.3–1.0 GiB |
 | CUDA / allocator / temps | fixed-ish | ~0.5–1.0 GiB | ~0.5–1.0 GiB |
-| **Peak (comfortable)** | | **~3–5 GiB** | **~5–7 GiB** |
-| Micro-batch `B` | | **2** | **1** |
+| **Peak (comfortable)** | | **~4–7 GiB** | **~5–7 GiB** |
+| Micro-batch `B` | | **4** | **1** |
 
 `P` = parameter count, `B` = `per_device_train_batch_size`, `S` = `block_size`,
 `V` = vocab size, `H` = `n_embd`, `L` = `n_layer`.
@@ -33,8 +33,8 @@ CPU/disk. Only the **packed micro-batch** on device matters.
 Typical Mist peaks to scale (`█` ≈ 0.25 GiB; 32 columns = 8 GiB):
 
 ```
-GPT-2  B=2   ~4 GiB   ████████████████................   comfortable
-Gemma  B=1   ~6 GiB   ████████████████████████........   tight
+GPT-2  B=4   ~5 GiB   ████████████████████............   comfortable (ckpt off)
+Gemma  B=1   ~6 GiB   ████████████████████████........   tight (ckpt on)
 Gemma  B=2   ~8+ GiB  ████████████████████████████████▒▒  OOM risk
                       0    1    2    3    4    5    6    7    8 GiB
 ```
@@ -43,8 +43,8 @@ Where that fill comes from (midpoint stacks, same scale):
 
 ```
               ├─ static (∝ P) ─┤├── micro-batch ──┤├oh┤
-GPT-2  ~4     ███ ███ ████     ████ ████          ██  ................
-              w   g   Adam     act  logits        oh     free
+GPT-2  ~5     ███ ███ ████     ██████ ████        ██  ............
+              w   g   Adam     act    logits      oh     free
 
 Gemma  ~6     █████ █████ █████████  ███ ████     ██  ........
               w     g     Adam       act logits   oh   free
@@ -200,9 +200,9 @@ Peak VRAM vs effective batch
 
 Hub rows and the stream buffer live in **host RAM / disk**. What hits VRAM:
 
-| Tensor | Shape | Size on Mist GPT-2 (`B=2`, `S=1024`) |
+| Tensor | Shape | Size on Mist GPT-2 (`B=4`, `S=1024`) |
 |---|---|---|
-| `input_ids` / `labels` | `B × S` int64 | ~16 KiB — negligible |
+| `input_ids` / `labels` | `B × S` int64 | ~32 KiB — negligible |
 | Attention mask | `B × S` | negligible |
 | Hidden states / residuals | `B × S × H` per live activation | **large** |
 | Attention scores / context | scales with `S²` per head (implementation-dependent) | **large** at long context |
@@ -226,16 +226,16 @@ logits_bytes = B × S × V × elem_bytes
 
 | Setup | `B` | `S` | `V` | fp16 (2 B) | fp32 (4 B, CE upcast) |
 |---|---:|---:|---:|---:|---:|
-| GPT-2 Mist | 2 | 1024 | ~50,257 | **~0.19 GiB** | **~0.39 GiB** |
+| GPT-2 Mist | 4 | 1024 | ~50,257 | **~0.38 GiB** | **~0.77 GiB** |
 | Gemma Mist | 1 | 1024 | ~256,000 | **~0.49 GiB** | **~0.98 GiB** |
 | Gemma @ batch 2 | 2 | 1024 | ~256,000 | **~0.98 GiB** | **~1.95 GiB** |
 
 ```
 Logits @ fp32 (CE upcast) — why Gemma micro-batch stays at 1
 
-GPT-2  B=2  V≈50k    ████░░░░░░░░░░░░░░░░░░░░░░░░░░░░  0.39 GiB
-Gemma  B=1  V≈256k   ████████████░░░░░░░░░░░░░░░░░░░░  0.98 GiB
-Gemma  B=2  V≈256k   ████████████████████████░░░░░░░░  1.95 GiB
+GPT-2  B=4  V≈50k    ████████████░░░░░░░░░░░░░░░░░░░░  0.77 GiB
+Gemma  B=1  V≈256k   ████████████████░░░░░░░░░░░░░░░░  0.98 GiB
+Gemma  B=2  V≈256k   ███████████████████████████████░  1.95 GiB
                      0         0.5       1.0       1.5       2.0 GiB
 ```
 
@@ -268,11 +268,12 @@ act_GiB ≲ k × B × S × H × 2 / 1024³     # k ≈ a few×L (checkpointed)
 
 | Family | `B` | `H` | `L` | Rough activations |
 |---|---:|---:|---:|---|
-| GPT-2 | 2 | 768 | 12 | ~0.5–1.5 GiB |
-| Gemma | 1 | 512 | 8 | ~0.3–1.0 GiB |
+| GPT-2 (ckpt off) | 4 | 768 | 12 | ~1.5–3.0 GiB |
+| Gemma (ckpt on) | 1 | 512 | 8 | ~0.3–1.0 GiB |
 
-Turning checkpointing **off** on 8 GB usually OOMs even when the static budget
-looked fine.
+GPT-2 / NeoX afford checkpointing **off** because their small vocab leaves
+headroom. For Gemma-class vocabularies on 8 GB, turning checkpointing off
+usually OOMs even when the static budget looked fine.
 
 ### 5. Overhead
 

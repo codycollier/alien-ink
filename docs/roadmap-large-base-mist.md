@@ -42,9 +42,9 @@ QLoRA, since inference-only limits are looser. Rough tiers:
 
 | Tier | Size | Candidates | QLoRA on Mist | Quantized inference |
 |---|---:|---|---|---|
-| Comfortable | 1–2B | Llama-3.2-1B, SmolLM2-1.7B, Qwen3-1.7B-Base | Easy; room for S=1024+, larger microbatch | Trivial |
-| Workable | 3–4B | Llama-3.2-3B, Qwen2.5-3B, Gemma-class ~4B | Fits with checkpointing, B=1, moderate S | Comfortable |
-| Ceiling | 7–8B | Qwen2.5-7B, Mistral-7B, Llama-3.1-8B | Tight; short sequences, careful measurement | Fits, KV cache is the constraint |
+| Comfortable | 1–2B | Llama-3.2-1B, SmolLM2-1.7B, Qwen3-1.7B-Base, MiniCPM5-1B-Base (standard Llama arch), LFM2.5-1.2B-Base, granite-4.0-1b-base | Easy; room for S=1024+, larger microbatch | Trivial |
+| Workable | 3–4B | Llama-3.2-3B, SmolLM3-3B-Base, Qwen3-4B-Base, Gemma-class ~4B | Fits with checkpointing, B=1, moderate S | Comfortable |
+| Ceiling | 7–8B | Qwen3-8B-Base, Qwen2.5-7B, Mistral-7B, Llama-3.1-8B | Tight; short sequences, careful measurement | Fits, KV cache is the constraint |
 
 Speculative recommendation: run the loop end-to-end at the **comfortable tier
 first** (SmolLM2-1.7B or Llama-3.2-1B), where every phase has slack and
@@ -59,11 +59,17 @@ Selection criteria beyond size:
   same lesson as Mist Gemma, at larger scale);
 - GQA (fewer KV heads) — this pays off twice, in training activations and in
   the inference KV cache;
-- an established GGUF/llama.cpp conversion path, so phase 4 is boring.
+- an established GGUF/llama.cpp conversion path, so phase 4 is boring;
+- prefer plain dense transformers for the first loop. 2026's hybrid and
+  multimodal bases (Qwen3.5's DeltaNet + vision encoder, LFM2.5's conv
+  blocks, Granite's `-h-` Mamba2 variants) are worth a later ablation, but
+  they complicate LoRA target-module selection, 4-bit loading, and GGUF
+  conversion all at once — MiniCPM5-1B-Base's plain `LlamaForCausalLM` is
+  the counterexample that keeps every phase boring.
 
 ## Phase 2: QLoRA training on Mist
 
-This is Track C2 of the [model learning plan](model-learning-plan.md), taken
+This is Track C2 of the [learning plan](roadmap-learning-plan.md), taken
 to its intended scale. The base model loads in 4-bit NF4 via bitsandbytes and
 is frozen; only the LoRA adapter trains, in bf16, with its own small optimizer
 state.
@@ -71,7 +77,7 @@ state.
 ### Why the memory equation changes
 
 Full fine-tuning pays `P × 12–16` bytes for weights + grads + Adam (see
-[gpu-memory.md](gpu-memory.md)). QLoRA replaces that with:
+[the GPU memory reference](reference-gpu-memory.md)). QLoRA replaces that with:
 
 ```
 static ≈ P × 0.5          # NF4 base weights (frozen, no grads, no Adam)
