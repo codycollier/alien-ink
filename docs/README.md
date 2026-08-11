@@ -1,6 +1,6 @@
 # Docs
 
-AI generated reference material for Alien Ink model training.
+AI generated reference material for Alien Ink present and possible futures
 
 
 | Doc | Contents |
