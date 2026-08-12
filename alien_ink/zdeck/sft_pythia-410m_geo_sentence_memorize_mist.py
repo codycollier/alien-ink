@@ -3,14 +3,15 @@
 
 This is the Pythia-410M scale duplicate of the 70M sentence experiment. It
 continues causal-LM training on all 56 geo documents, with ordinary loss over
-their retained 1024-token blocks, while evaluating masked completions from the
+their retained 512-token blocks, while evaluating masked completions from the
 exact-sentence JSON. The external completion eval means no corpus rows are held
 out. This measures absorption of in-corpus sentences, not generalization.
 
 Pythia-410M is the largest published Pythia base expected to support ordinary
-full-parameter AdamW fine-tuning on Mist's RTX 3070 (8 GB). Batch one plus 32
-gradient-accumulation steps preserves the 70M experiment's effective batch of
-32 while reducing peak memory.
+full-parameter AdamW fine-tuning on Mist's RTX 3070 (8 GB). A 1024-token block
+OOMs while allocating the full-vocabulary cross-entropy buffer. Batch one at
+512 tokens plus 64 gradient-accumulation steps preserves approximately 32,768
+training tokens per optimizer update while reducing that peak allocation.
 
   python alien_ink/zdeck/sft_pythia-410m_geo_sentence_memorize_mist.py
 """
@@ -40,7 +41,7 @@ MANIFEST = Manifest(
         max_eval_samples=53,
         max_train_samples=None,
         stream_shuffle_buffer=10_000,
-        block_size=1024,
+        block_size=512,
         respect_document_boundaries=True,
         tokenizer_num_proc=8,
         seed=101,
@@ -56,7 +57,7 @@ MANIFEST = Manifest(
         label="mist-rtx-3070",
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
-        gradient_accumulation_steps=32,
+        gradient_accumulation_steps=64,
         dataloader_num_workers=8,
         dataloader_prefetch_factor=4,
         dataloader_persistent_workers=True,
