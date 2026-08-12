@@ -22,13 +22,13 @@ script=""
 # script="alien_ink/zdeck/sft_smollm2-135m_geo_mist.py"
 # name="sft-smollm2-135m-geo-mist"
 
-# Completion-trained synthetic facts (population-basic).
-# script="alien_ink/zdeck/sft_pythia-70m_geo_fact_memorize_mist.py"
-# name="sft-pythia-70m-geo-fact-memorize-mist"
-
 # Full-document geo corpus with exact in-corpus sentence evaluation.
-script="alien_ink/zdeck/sft_pythia-70m_geo_sentence_memorize_mist.py"
-name="sft-pythia-70m-geo-sentence-memorize-mist"
+# script="alien_ink/zdeck/sft_pythia-70m_geo_sentence_memorize_mist.py"
+# name="sft-pythia-70m-geo-sentence-memorize-mist"
+
+# Completion-trained synthetic facts (population-basic).
+script="alien_ink/zdeck/sft_pythia-70m_geo_fact_memorize_mist.py"
+name="sft-pythia-70m-geo-fact-memorize-mist"
 
 # ------------------------------------------------------------------------------
 
