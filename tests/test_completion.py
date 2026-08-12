@@ -46,7 +46,7 @@ def test_completion_config_validates_and_resolves_eval_path(tmp_path: Path):
         CompletionDataConfig(train_path=str(path), max_length=0).validate()
 
 
-def test_prepare_completion_datasets_uses_all_rows_and_named_train_eval(tmp_path: Path):
+def test_prepare_completion_datasets_uses_all_rows_and_standard_eval(tmp_path: Path):
     path = tmp_path / "pairs.json"
     _write_pairs(path)
     train, evals = prepare_completion_datasets(
@@ -55,9 +55,7 @@ def test_prepare_completion_datasets_uses_all_rows_and_named_train_eval(tmp_path
         verbose=False,
     )
     assert len(train) == 2
-    assert set(evals) == {"completion", "train"}
-    assert len(evals["completion"]) == 2
-    assert evals["train"] is train
+    assert len(evals) == 2
     assert train[0]["labels"][:3] == [-100, -100, -100]
 
 
@@ -75,7 +73,7 @@ def test_prepare_completion_datasets_limits_and_prompt_loss(tmp_path: Path):
         verbose=False,
     )
     assert len(train) == 1
-    assert len(evals["completion"]) == 1
+    assert len(evals) == 1
     assert -100 not in train[0]["labels"]
 
     with pytest.raises(ValueError, match="sequence length"):
@@ -84,3 +82,15 @@ def test_prepare_completion_datasets_limits_and_prompt_loss(tmp_path: Path):
             _Tokenizer(),
             verbose=False,
         )
+
+
+def test_prepare_completion_datasets_can_name_train_eval(tmp_path: Path):
+    path = tmp_path / "pairs.json"
+    _write_pairs(path)
+    train, evals = prepare_completion_datasets(
+        CompletionDataConfig(train_path=str(path), eval_train_dataset=True),
+        _Tokenizer(),
+        verbose=False,
+    )
+    assert set(evals) == {"completion", "train"}
+    assert evals["train"] is train

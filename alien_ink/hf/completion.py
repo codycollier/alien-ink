@@ -27,6 +27,7 @@ class CompletionDataConfig:
     max_train_samples: int | None = None
     max_eval_samples: int | None = None
     loss_on_prompt: bool = False
+    eval_train_dataset: bool = False
     max_length: int = 128
     seed: int = 101
 
@@ -92,4 +93,6 @@ def prepare_completion_datasets(
     if verbose:
         detail(f"train examples: {len(train_dataset):,} (completion JSON)", logger=log)
         detail(f"eval examples:  {len(eval_dataset):,} (completion JSON)", logger=log)
-    return train_dataset, {"completion": eval_dataset, "train": train_dataset}
+    if data.eval_train_dataset:
+        return train_dataset, {"completion": eval_dataset, "train": train_dataset}
+    return train_dataset, eval_dataset

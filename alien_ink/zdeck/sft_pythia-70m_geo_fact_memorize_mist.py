@@ -21,29 +21,23 @@ Losses in plain English:
 
 * Training ``loss`` measures how surprised the model is by answer tokens such
   as ``10,000.`` after seeing the prompt. Prompt tokens never count toward it.
-* ``eval_completion_loss`` measures that same answer-token objective over the
-  configured eval pairs.
-* ``eval_train_loss`` runs the actual training pairs through the model in eval
-  mode, without dropout, gradients, or parameter updates.
+* ``eval_loss`` measures that same answer-token objective over the configured
+  eval pairs in eval mode, without dropout, gradients, or parameter updates.
 
-Because train and eval contain the same complete JSON here, the two eval
-losses should be nearly identical. They are the clean, comparable measurement
-of memorization. Falling toward zero means the model is assigning very high
-probability to the answers it was explicitly taught. Trainer's aggregate
+Because train and eval contain the same complete JSON here, ``eval_loss`` is a
+clean measurement of memorization on the actual trained pairs. Falling toward
+zero means the model is assigning very high probability to the answers it was
+explicitly taught. Trainer's aggregate
 end-of-run ``train_loss`` may use different accumulation bookkeeping; prefer
-the two eval losses when judging this experiment. Floating-point loss rarely
-equals literal zero, so this run defines "zero" as
-``eval_completion_loss <= 1e-4`` and stops after that is true at three
+``eval_loss`` when judging this experiment. Floating-point loss rarely equals
+literal zero, so this run defines "zero" as ``eval_loss <= 1e-4`` and stops
+after that is true at three
 consecutive, distinct evaluation steps.
 
-``eval_path`` independently constructs the same kind of masked
-dataset. Here it points to the same JSON, and the generous eval cap includes
-the complete file. Trainer evaluates it under two names:
-``eval_completion_loss`` is the configured completion eval set, while
-``eval_train_loss`` re-evaluates the actual training set without dropout or
-parameter updates. The two should agree closely and fall toward zero;
-disagreement would expose a data-path problem, while failure to fall would
-expose an optimization problem. This is an intentional memorization
+``eval_path`` independently constructs the same kind of masked dataset. Here
+it points to the same complete JSON, and Trainer reports its loss under the
+standard ``eval_loss`` metric. Failure to fall would expose an optimization
+problem. This is an intentional memorization
 diagnostic of facts trained directly as completions, not a test of absorbing
 sentences from a natural-text corpus or of generalization.
 
@@ -81,6 +75,7 @@ MANIFEST = Manifest(
         max_eval_samples=None,
         max_train_samples=None,
         loss_on_prompt=False,
+        eval_train_dataset=False,
         max_length=128,
         seed=101,
     ),
@@ -130,7 +125,7 @@ MANIFEST = Manifest(
         save_steps=None,
         save_total_limit=2,
         early_stopping_patience=0,
-        stop_loss_metric="eval_completion_loss",
+        stop_loss_metric="eval_loss",
         stop_loss_threshold=1e-4,
         stop_loss_patience=3,
     ),
