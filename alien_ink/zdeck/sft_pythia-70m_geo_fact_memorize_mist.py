@@ -51,6 +51,8 @@ Set either sample limit to a small integer for a prefix-only diagnostic. Swap
 ``model_name`` for another Hub base or a local ``output/train/<run>``
 checkpoint. Every manifest field is spelled out below for reproducibility;
 epoch length is controlled by ``num_train_epochs`` with ``max_steps=-1``.
+Rerunning this zdeck always starts from the configured Pythia base model;
+``resume_from_checkpoint=False`` explicitly disables resuming an existing run.
 
 Reference: https://huggingface.co/EleutherAI/pythia-70m
 
@@ -133,7 +135,11 @@ MANIFEST = Manifest(
         stop_loss_patience=3,
     ),
     # Fine-tuning convention: slower second-moment decay than pretraining.
-    trainer_overrides={"adam_beta2": 0.999},
+    trainer_overrides={
+        "adam_beta2": 0.999,
+        # A rerun is fresh, even when output checkpoints already exist.
+        "resume_from_checkpoint": False,
+    },
 )
 
 

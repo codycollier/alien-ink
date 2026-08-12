@@ -45,6 +45,9 @@ verbatim inside retained training blocks. The Minnesota prompt also includes
 flattened section headings, so treat that item as a formatting probe rather
 than a strictly verbatim training sentence.
 
+Rerunning this zdeck always starts from the configured Pythia base model;
+``resume_from_checkpoint=False`` explicitly disables resuming an existing run.
+
 Reference: https://huggingface.co/EleutherAI/pythia-70m
 
   python alien_ink/zdeck/sft_pythia-70m_geo_sentence_memorize_mist.py
@@ -128,7 +131,11 @@ MANIFEST = Manifest(
         save_total_limit=2,
         early_stopping_patience=0,
     ),
-    trainer_overrides={"adam_beta2": 0.999},
+    trainer_overrides={
+        "adam_beta2": 0.999,
+        # A rerun is fresh, even when output checkpoints already exist.
+        "resume_from_checkpoint": False,
+    },
 )
 
 
