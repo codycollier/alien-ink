@@ -30,9 +30,10 @@ zero means the model is assigning very high probability to the answers it was
 explicitly taught. Trainer's aggregate
 end-of-run ``train_loss`` may use different accumulation bookkeeping; prefer
 ``eval_loss`` when judging this experiment. Floating-point loss rarely equals
-literal zero, so this run defines "zero" as ``eval_loss <= 1e-4`` and stops
-after that is true at three
-consecutive, distinct evaluation steps.
+literal zero, and small optimizer updates can jitter an already memorized model.
+This run therefore defines practical convergence as ``eval_loss <= 0.01``
+(perplexity about 1.01) and stops after that is true at three consecutive,
+distinct evaluations.
 
 ``eval_path`` independently constructs the same kind of masked dataset. Here
 it points to the same complete JSON, and Trainer reports its loss under the
@@ -126,7 +127,8 @@ MANIFEST = Manifest(
         save_total_limit=2,
         early_stopping_patience=0,
         stop_loss_metric="eval_loss",
-        stop_loss_threshold=1e-4,
+        # Near-certain completions without chasing a jitter-sensitive literal zero.
+        stop_loss_threshold=0.01,
         stop_loss_patience=3,
     ),
     # Fine-tuning convention: slower second-moment decay than pretraining.
