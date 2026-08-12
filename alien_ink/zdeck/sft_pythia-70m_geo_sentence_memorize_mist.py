@@ -7,12 +7,28 @@ all 56 documents from ``codycollier/geo-us-states``. Because
 ``completion_eval_path`` supplies Trainer evaluation externally, no Hub rows
 are held out: every geo document remains in training.
 
+Losses in plain English:
+
+* Training ``loss`` measures ordinary next-token prediction over every token
+  retained in the 1024-token document blocks: headings, prose, punctuation,
+  population facts, and all surrounding material contribute.
+* ``eval_loss`` is much narrower. It supplies an exact sentence prefix as
+  context, ignores that prompt in the labels, and measures only how surprised
+  the model is by the sentence's remaining completion tokens.
+
+A falling training loss means the model is learning the geo documents in
+general. A falling eval loss means it is specifically becoming better at the
+selected in-corpus sentence continuations. Their absolute values should not be
+expected to match because they average over different tokens and objectives;
+the useful question is whether both decline, especially whether eval loss
+moves toward zero for memorized continuations.
+
 Evaluation is dynamically built from all 53 entries in
 ``/tmp/population-exact/geo-us-states.json``. Each entry splits a sentence
 from the corpus into a ``prompt`` and ``completion``. The shared completion
 tokenizer restores normal boundary whitespace when the JSON fields omit it.
-Evaluation is teacher-forced completion cross-entropy: prompt labels are masked with
-``-100``, while completion tokens are scored. The resulting ``eval_loss``
+Evaluation is teacher-forced completion cross-entropy: prompt labels are
+masked with ``-100``, while completion tokens are scored. The resulting ``eval_loss``
 therefore measures whether the model can recover exact continuations from
 sentences it encountered during full-document training.
 

@@ -17,6 +17,22 @@ are therefore computed only for the completion tokens. Every JSON sentence is
 visited once per epoch. With batch size one and no gradient accumulation, each
 sentence produces one optimizer update.
 
+Losses in plain English:
+
+* Training ``loss`` measures how surprised the model is by answer tokens such
+  as ``10,000.`` after seeing the prompt. Prompt tokens never count toward it.
+* ``eval_completion_loss`` measures that same answer-token objective over the
+  configured eval pairs.
+* ``eval_train_loss`` runs the actual training pairs through the model in eval
+  mode, without dropout, gradients, or parameter updates.
+
+Because train and eval contain the same complete JSON here, the two eval
+losses should be nearly identical. They are the clean, comparable measurement
+of memorization. Falling toward zero means the model is assigning very high
+probability to the answers it was explicitly taught. Trainer's aggregate
+end-of-run ``train_loss`` may use different accumulation bookkeeping; prefer
+the two eval losses when judging this experiment.
+
 ``eval_path`` independently constructs the same kind of masked
 dataset. Here it points to the same JSON, and the generous eval cap includes
 the complete file. Trainer evaluates it under two names:
