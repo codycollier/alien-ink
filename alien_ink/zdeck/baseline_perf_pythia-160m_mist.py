@@ -1,36 +1,18 @@
 #!/usr/bin/env python
-"""Pretrain Mist-sized GPT-NeoX from scratch for 0.25 epochs on WikiText-103.
+"""Short Pythia-160M performance baseline on materialized WikiText-103.
 
-Performance-baseline formula: short fractional-epoch run on fully materialized
-WikiText (``mode="complete"``) so wall-clock and throughput are comparable
-across hardware/config tweaks. Every manifest field is spelled out below for
-reproducibility — change values in place, do not rely on module defaults.
-
-Speed notes (nanochat-inspired, tuned for Mist: 16-core / 94 GB / RTX 3070 8 GB):
-  - Larger micro-batch (4) with fewer accum steps keeps tokens/step at 32,768
-    while cutting Python / launch overhead (nanochat: push device-batch-size).
-  - Checkpointing off: Mist NeoX has VRAM headroom; rematerialization costs
-    wall-clock. If this OOMs, set ``gradient_checkpointing=True`` first.
-  - ``torch.compile`` + TF32 (Ampere) + fused AdamW for kernel efficiency.
-  - Host has spare CPU/RAM: more tokenize procs, dataloader workers, prefetch.
-
-  python -m alien_ink.zdeck.baseline_perf_mist
+  python alien_ink/zdeck/baseline_perf_pythia-160m_mist.py
 """
 
-from __future__ import annotations
-
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig
+from alien_ink.hf.manifest import HardwareConfig, Manifest, ScheduleConfig, WandbConfig
 from alien_ink.hf.model import CausalLmArchConfig
-from alien_ink.hf.manifest import (
-    HardwareConfig,
-    Manifest,
-    ScheduleConfig,
-    WandbConfig,
-)
+
+RUN_NAME = "baseline-perf-pythia-160m-mist"
 
 MANIFEST = Manifest(
-    run_name="baseline-perf-mist",
-    title="GPT-NeoX from scratch on WikiText-103 (0.25 epochs, baseline perf)",
+    run_name=RUN_NAME,
+    title="Pythia-160M from scratch on WikiText-103 (0.25 epochs, baseline perf)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
@@ -55,9 +37,9 @@ MANIFEST = Manifest(
         seed=101,
     ),
     model=CausalLmArchConfig(
-        family="gpt-neox",
-        tokenizer_name="EleutherAI/gpt-neox-20b",
-        n_positions=1024,
+        family="pythia",
+        tokenizer_name="EleutherAI/pythia-160m",
+        n_positions=2048,
         n_embd=768,
         n_layer=12,
         n_head=12,
@@ -91,10 +73,7 @@ MANIFEST = Manifest(
         optim="adamw_torch_fused",
     ),
     wandb=WandbConfig(
-        entity="logbook",
-        project="ink-explore",
-        name="baseline-perf-mist",
-        enabled=True,
+        entity="logbook", project="ink-explore", name=RUN_NAME, enabled=True
     ),
     schedule=ScheduleConfig(
         max_steps=-1,
@@ -106,7 +85,6 @@ MANIFEST = Manifest(
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
         seed=101,
-        # Epoch mode: cadence is derived from packed dataset length at train time.
         logging_steps=None,
         eval_steps=None,
         save_steps=None,
@@ -117,9 +95,5 @@ MANIFEST = Manifest(
 )
 
 
-def main() -> None:
-    MANIFEST.train()
-
-
 if __name__ == "__main__":
-    main()
+    MANIFEST.train()

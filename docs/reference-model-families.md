@@ -311,7 +311,7 @@ matching how packed training mostly looks.
 | C4 English | `gemma_c4_5k` (5k steps) |
 | C4 English | `gemma_c4_50k` (50k steps) |
 | WikiText-103 | `gemma_wikitext_4ep` (complete, 4 epochs) |
-| WikiText-103 | `baseline_perf_gemma` (0.25 epochs, perf baseline) |
+| WikiText-103 | `baseline_perf_gemma_mist` (0.25 epochs, perf baseline) |
 
 Wikipedia is supported by the stack; C4 and WikiText are the archived
 pairings.

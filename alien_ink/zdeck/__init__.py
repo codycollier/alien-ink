@@ -59,7 +59,7 @@ def load_zdeck(name: str) -> tuple[ModuleType, str]:
 
     ``name`` may be a short archive name (``pre_gpt-2_wikitext_5k_mist``), a
     ``.py`` path (resolved against the current working directory), or a module
-    path (``alien_ink.zdeck.baseline_perf_mist``). Hyphenated filenames cannot
+    path (``alien_ink.zdeck.baseline_perf_gemma_mist``). Hyphenated filenames cannot
     be imported as modules, so archive files are tried first.
     """
     name = name.strip()

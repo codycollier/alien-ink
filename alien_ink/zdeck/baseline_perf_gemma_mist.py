@@ -1,7 +1,7 @@
 #!/usr/bin/env python
 """Pretrain Mist-sized Gemma from scratch for 0.25 epochs on WikiText-103.
 
-Gemma twin of ``baseline_perf_mist``: same WikiText complete recipe, fractional
+Gemma companion to the model-designated baselines: same WikiText recipe, fractional
 epoch, LR schedule shape, and tokens/step (32,768), with Mist Gemma arch and
 the batch/checkpoint knobs Gemma needs on 8 GB. Every manifest field is
 spelled out below for reproducibility — change values in place, do not rely
@@ -73,7 +73,7 @@ MANIFEST = Manifest(
     hardware=HardwareConfig(
         label="mist-rtx-3070",
         # batch=2 OOMs on 8 GB: Gemma vocab (~256k) materializes ~2 GiB logits.
-        # Accum 32 keeps tokens/step at 32,768 (same as baseline_perf_mist).
+        # Accum 32 keeps tokens/step at 32,768 (same as the other baselines).
         per_device_train_batch_size=1,
         per_device_eval_batch_size=1,
         gradient_accumulation_steps=32,

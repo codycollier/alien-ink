@@ -43,8 +43,8 @@ script=""
 # script="alien_ink/zdeck/pre_gpt-neox_curriculum_geo_mist.py"
 # name="pre-gpt-neox-curriculum-geo-mist"
 
-# module="alien_ink.zdeck.baseline_perf_mist"
-# name="baseline-perf-mist"
+# script="alien_ink/zdeck/baseline_perf_gpt-neox_mist.py"
+# name="baseline-perf-gpt-neox-mist"
 
 module="alien_ink.zdeck.baseline_perf_gemma_mist"
 name="baseline-perf-gemma-mist"

@@ -1,30 +1,18 @@
 #!/usr/bin/env python
-"""Pretrain Mist-sized Gemma from scratch for 4 epochs on WikiText-103.
+"""Short GPT-2 performance baseline on fully materialized WikiText-103.
 
-Uses a small Gemma architecture (not full Gemma-2B) so training fits on Mist
-(local RTX 3070, ~8 GB). WikiText is fully materialized (``mode="complete"``)
-so epoch length is well-defined. Every manifest field is spelled out below for
-reproducibility — change values in place, do not rely on module defaults.
-
-Requires Hugging Face access to the Gemma tokenizer (`google/gemma-2b`).
-
-  python -m alien_ink.zdeck.pre_gemma_wikitext_4ep_mist
+  python alien_ink/zdeck/baseline_perf_gpt-2_mist.py
 """
 
-from __future__ import annotations
-
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig
+from alien_ink.hf.manifest import HardwareConfig, Manifest, ScheduleConfig, WandbConfig
 from alien_ink.hf.model import CausalLmArchConfig
-from alien_ink.hf.manifest import (
-    HardwareConfig,
-    Manifest,
-    ScheduleConfig,
-    WandbConfig,
-)
+
+RUN_NAME = "baseline-perf-gpt-2-mist"
 
 MANIFEST = Manifest(
-    run_name="pre-gemma-wikitext-4ep-mist",
-    title="Gemma (Mist-sized) from scratch on WikiText-103 (4 epochs)",
+    run_name=RUN_NAME,
+    title="GPT-2 from scratch on WikiText-103 (0.25 epochs, baseline perf)",
     stage="pre",
     data=PretrainDataConfig(
         source=HubTextSource(
@@ -49,51 +37,47 @@ MANIFEST = Manifest(
         seed=101,
     ),
     model=CausalLmArchConfig(
-        family="gemma",
-        tokenizer_name="google/gemma-2b",
+        family="gpt-2",
+        tokenizer_name="gpt2",
         n_positions=1024,
-        n_embd=512,
-        n_layer=8,
-        n_head=8,
-        head_dim=64,
-        intermediate_size=2048,
-        hidden_act="gelu_pytorch_tanh",
-        hidden_dropout=0.0,
-        attention_dropout=0.0,
-        norm_epsilon=1e-6,
+        n_embd=768,
+        n_layer=12,
+        n_head=12,
+        head_dim=None,
+        intermediate_size=None,
+        hidden_act="gelu_new",
+        hidden_dropout=0.1,
+        attention_dropout=0.1,
+        norm_epsilon=1e-5,
         initializer_range=0.02,
-        rope_theta=10_000.0,
+        rope_theta=None,
         rotary_pct=None,
         tie_word_embeddings=True,
-        num_key_value_heads=8,
+        num_key_value_heads=None,
         attention_implementation="sdpa",
         use_cache=False,
     ),
     hardware=HardwareConfig(
         label="mist-rtx-3070",
-        # batch=2 OOMs on 8 GB: Gemma vocab (~256k) materializes ~2 GiB logits.
-        per_device_train_batch_size=1,
-        per_device_eval_batch_size=1,
-        gradient_accumulation_steps=32,
+        per_device_train_batch_size=4,
+        per_device_eval_batch_size=4,
+        gradient_accumulation_steps=8,
         dataloader_num_workers=8,
         dataloader_prefetch_factor=4,
         dataloader_persistent_workers=True,
         prefer_bf16=True,
         prefer_fp16=True,
-        gradient_checkpointing=True,
+        gradient_checkpointing=False,
         tf32=True,
         torch_compile=True,
         optim="adamw_torch_fused",
     ),
     wandb=WandbConfig(
-        entity="logbook",
-        project="ink-explore",
-        name="pre-gemma-wikitext-4ep-mist",
-        enabled=True,
+        entity="logbook", project="ink-explore", name=RUN_NAME, enabled=True
     ),
     schedule=ScheduleConfig(
         max_steps=-1,
-        num_train_epochs=4.0,
+        num_train_epochs=0.25,
         learning_rate=6e-4,
         warmup_steps=None,
         warmup_ratio=0.04,
@@ -101,7 +85,6 @@ MANIFEST = Manifest(
         max_grad_norm=1.0,
         lr_scheduler_type="cosine",
         seed=101,
-        # Epoch mode: cadence is derived from packed dataset length at train time.
         logging_steps=None,
         eval_steps=None,
         save_steps=None,
@@ -112,9 +95,5 @@ MANIFEST = Manifest(
 )
 
 
-def main() -> None:
-    MANIFEST.train()
-
-
 if __name__ == "__main__":
-    main()
+    MANIFEST.train()

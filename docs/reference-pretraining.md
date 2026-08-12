@@ -220,7 +220,9 @@ Pretraining (`stage="pre"`):
 | `pre_gemma_c4_5k_mist` | Gemma | C4 English (stream, 5k steps) |
 | `pre_gemma_c4_50k_mist` | Gemma | C4 English (stream, 50k steps) |
 | `pre_gemma_wikitext_4ep_mist` | Gemma | WikiText-103 (complete, 4 epochs) |
-| `baseline_perf_mist` | GPT-NeoX | WikiText-103 (complete, 0.25 epochs — perf baseline) |
+| `baseline_perf_gpt-2_mist` | GPT-2 | WikiText-103 (complete, 0.25 epochs — perf baseline) |
+| `baseline_perf_gpt-neox_mist` | GPT-NeoX | WikiText-103 (complete, 0.25 epochs — perf baseline) |
+| `baseline_perf_pythia-160m_mist` | Pythia-160M | WikiText-103 (complete, 0.25 epochs — perf baseline) |
 | `baseline_perf_gemma_mist` | Gemma | WikiText-103 (complete, 0.25 epochs — perf baseline) |
 
 Supervised fine-tuning (`stage="sft"`):

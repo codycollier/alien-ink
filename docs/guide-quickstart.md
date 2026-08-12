@@ -35,7 +35,9 @@ python alien_ink/zdeck/pre_pythia-160m_wikitext_4ep_mist.py # Pythia-160M, 4 epo
 python alien_ink/zdeck/pre_smollm2-135m_wikitext_4ep_mist.py # SmolLM2-135M, 4 epochs, WikiText complete
 python alien_ink/zdeck/pre_gpt-neox_curriculum_geo_mist.py  # GPT-NeoX, curriculum: C4 then geo-us-states
 python alien_ink/zdeck/sft_pythia-160m_geo_mist.py          # SFT pythia-160m on geo-us-states
-python -m alien_ink.zdeck.baseline_perf_mist                # GPT-NeoX, 0.25 epochs, perf baseline
+./bin/mist-train-baseline-perf.sh gpt-2                    # comparable 0.25-epoch perf baselines
+./bin/mist-train-baseline-perf.sh gpt-neox
+./bin/mist-train-baseline-perf.sh pythia                   # Pythia-160M
 ```
 
 Or background one with `./bin/pretrain-mist.sh` (edit the script to select a
