@@ -26,9 +26,17 @@ script=""
 # script="alien_ink/zdeck/sft_pythia-70m_geo_sentence_memorize_mist.py"
 # name="sft-pythia-70m-geo-sentence-memorize-mist"
 
+# Full-document geo corpus at Mist's full-fine-tuning ceiling.
+# script="alien_ink/zdeck/sft_pythia-410m_geo_sentence_memorize_mist.py"
+# name="sft-pythia-410m-geo-sentence-memorize-mist"
+
 # Completion-trained synthetic facts (population-basic).
 script="alien_ink/zdeck/sft_pythia-70m_geo_fact_memorize_mist.py"
 name="sft-pythia-70m-geo-fact-memorize-mist"
+
+# Completion-trained synthetic facts at Mist's full-fine-tuning ceiling.
+# script="alien_ink/zdeck/sft_pythia-410m_geo_fact_memorize_mist.py"
+# name="sft-pythia-410m-geo-fact-memorize-mist"
 
 # ------------------------------------------------------------------------------
 
