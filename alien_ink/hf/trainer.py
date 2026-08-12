@@ -35,6 +35,7 @@ log = get_logger("hf.trainer")
 
 __all__ = [
     "CausalLmTrainerConfig",
+    "ConsecutiveLossThresholdCallback",
     "DEFAULT_EPOCH_EVALS_PER_EPOCH",
     "apply_epoch_cadence",
     "best_model_metric",
@@ -86,6 +87,9 @@ class CausalLmTrainerConfig:
     save_steps: int = 1_000
     save_total_limit: int = 2
     early_stopping_patience: int = 0
+    stop_loss_metric: str | None = None
+    stop_loss_threshold: float | None = None
+    stop_loss_patience: int = 0
     seed: int = 101
     data_seed: int = 101
     prefer_fp16: bool = True
@@ -175,6 +179,28 @@ class CausalLmTrainerConfig:
             raise ValueError(
                 "early_stopping_patience must be >= 0, "
                 f"got {self.early_stopping_patience}"
+            )
+        stop_fields = (
+            self.stop_loss_metric,
+            self.stop_loss_threshold,
+            self.stop_loss_patience or None,
+        )
+        if any(value is not None for value in stop_fields) and not all(
+            value is not None for value in stop_fields
+        ):
+            raise ValueError(
+                "stop_loss_metric, stop_loss_threshold, and positive "
+                "stop_loss_patience must be set together"
+            )
+        if self.stop_loss_metric is not None and not self.stop_loss_metric.strip():
+            raise ValueError("stop_loss_metric must be a non-empty string")
+        if self.stop_loss_threshold is not None and self.stop_loss_threshold < 0:
+            raise ValueError(
+                f"stop_loss_threshold must be >= 0, got {self.stop_loss_threshold}"
+            )
+        if self.stop_loss_patience < 0:
+            raise ValueError(
+                f"stop_loss_patience must be >= 0, got {self.stop_loss_patience}"
             )
         if self.seed < 0:
             raise ValueError(f"seed must be >= 0, got {self.seed}")
@@ -495,6 +521,36 @@ class ModuleKeyedTrainer(Trainer):
             del self.model.__dict__["save_pretrained"]
 
 
+class ConsecutiveLossThresholdCallback(TrainerCallback):
+    """Stop after a loss metric stays at/below a threshold for N eval steps."""
+
+    def __init__(self, *, metric: str, threshold: float, patience: int) -> None:
+        self.metric = metric
+        self.threshold = threshold
+        self.patience = patience
+        self.count = 0
+        self.last_step: int | None = None
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        del args, kwargs
+        if state.global_step == self.last_step:
+            return control
+        value = (metrics or {}).get(self.metric)
+        if value is None:
+            return control
+        self.last_step = state.global_step
+        self.count = self.count + 1 if float(value) <= self.threshold else 0
+        if self.count >= self.patience:
+            control.should_training_stop = True
+            log.info(
+                "Stopping: %s <= %.6g for %d consecutive eval steps",
+                self.metric,
+                self.threshold,
+                self.patience,
+            )
+        return control
+
+
 def build_trainer_callbacks(
     config: CausalLmTrainerConfig,
     *,
@@ -507,6 +563,15 @@ def build_trainer_callbacks(
         callbacks.append(
             EarlyStoppingCallback(
                 early_stopping_patience=config.early_stopping_patience
+            )
+        )
+    if has_eval and config.stop_loss_metric is not None:
+        assert config.stop_loss_threshold is not None
+        callbacks.append(
+            ConsecutiveLossThresholdCallback(
+                metric=config.stop_loss_metric,
+                threshold=config.stop_loss_threshold,
+                patience=config.stop_loss_patience,
             )
         )
     return callbacks

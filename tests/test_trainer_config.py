@@ -17,6 +17,7 @@ from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 from alien_ink.hf.model import CausalLmArchConfig  # noqa: E402
 from alien_ink.hf.trainer import (  # noqa: E402
     CausalLmTrainerConfig,
+    ConsecutiveLossThresholdCallback,
     apply_epoch_cadence,
     build_lm_data_collator,
     epoch_cadence_steps,
@@ -24,6 +25,14 @@ from alien_ink.hf.trainer import (  # noqa: E402
     reporting_disabled,
     tokens_per_optimizer_step,
 )
+
+
+class _State:
+    global_step = 0
+
+
+class _Control:
+    should_training_stop = False
 
 
 def test_tokens_per_optimizer_step_includes_world_size():
@@ -43,6 +52,43 @@ def test_reporting_disabled():
     assert reporting_disabled("None")
     assert reporting_disabled("")
     assert reporting_disabled(None)
+
+
+def test_consecutive_loss_threshold_stops_after_distinct_eval_steps():
+    callback = ConsecutiveLossThresholdCallback(
+        metric="eval_completion_loss",
+        threshold=1e-4,
+        patience=3,
+    )
+    state = _State()
+    control = _Control()
+
+    for step, loss in ((10, 9e-5), (10, 8e-5), (20, 2e-4), (30, 9e-5), (40, 8e-5)):
+        state.global_step = step
+        callback.on_evaluate(
+            None,
+            state,
+            control,
+            metrics={"eval_completion_loss": loss},
+        )
+        assert not control.should_training_stop
+
+    state.global_step = 50
+    callback.on_evaluate(
+        None,
+        state,
+        control,
+        metrics={"eval_completion_loss": 7e-5},
+    )
+    assert control.should_training_stop
+
+
+def test_trainer_config_requires_complete_loss_stop_condition(tmp_path: Path):
+    with pytest.raises(ValueError, match="must be set together"):
+        CausalLmTrainerConfig(
+            output_dir=tmp_path / "out",
+            stop_loss_metric="eval_loss",
+        ).validate()
     assert reporting_disabled([])
     assert not reporting_disabled("wandb")
 

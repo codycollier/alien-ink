@@ -31,7 +31,10 @@ losses should be nearly identical. They are the clean, comparable measurement
 of memorization. Falling toward zero means the model is assigning very high
 probability to the answers it was explicitly taught. Trainer's aggregate
 end-of-run ``train_loss`` may use different accumulation bookkeeping; prefer
-the two eval losses when judging this experiment.
+the two eval losses when judging this experiment. Floating-point loss rarely
+equals literal zero, so this run defines "zero" as
+``eval_completion_loss <= 1e-4`` and stops after that is true at three
+consecutive, distinct evaluation steps.
 
 ``eval_path`` independently constructs the same kind of masked
 dataset. Here it points to the same JSON, and the generous eval cap includes
@@ -125,6 +128,9 @@ MANIFEST = Manifest(
         save_steps=None,
         save_total_limit=2,
         early_stopping_patience=0,
+        stop_loss_metric="eval_completion_loss",
+        stop_loss_threshold=1e-4,
+        stop_loss_patience=3,
     ),
     # Fine-tuning convention: slower second-moment decay than pretraining.
     trainer_overrides={"adam_beta2": 0.999},

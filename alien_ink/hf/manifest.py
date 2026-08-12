@@ -200,6 +200,9 @@ class ScheduleConfig:
     save_steps: int | None = None
     save_total_limit: int = 2
     early_stopping_patience: int = 0
+    stop_loss_metric: str | None = None
+    stop_loss_threshold: float | None = None
+    stop_loss_patience: int = 0
 
     def uses_epochs(self) -> bool:
         return self.max_steps < 0
@@ -268,6 +271,28 @@ class ScheduleConfig:
             raise ValueError(
                 "early_stopping_patience must be >= 0, "
                 f"got {self.early_stopping_patience}"
+            )
+        stop_fields = (
+            self.stop_loss_metric,
+            self.stop_loss_threshold,
+            self.stop_loss_patience or None,
+        )
+        if any(value is not None for value in stop_fields) and not all(
+            value is not None for value in stop_fields
+        ):
+            raise ValueError(
+                "stop_loss_metric, stop_loss_threshold, and positive "
+                "stop_loss_patience must be set together"
+            )
+        if self.stop_loss_metric is not None and not self.stop_loss_metric.strip():
+            raise ValueError("stop_loss_metric must be a non-empty string")
+        if self.stop_loss_threshold is not None and self.stop_loss_threshold < 0:
+            raise ValueError(
+                f"stop_loss_threshold must be >= 0, got {self.stop_loss_threshold}"
+            )
+        if self.stop_loss_patience < 0:
+            raise ValueError(
+                f"stop_loss_patience must be >= 0, got {self.stop_loss_patience}"
             )
         cadence = self.cadence()
         for name, value in cadence.items():
@@ -463,6 +488,9 @@ class Manifest:
             save_steps=cadence["save_steps"],
             save_total_limit=self.schedule.save_total_limit,
             early_stopping_patience=self.schedule.early_stopping_patience,
+            stop_loss_metric=self.schedule.stop_loss_metric,
+            stop_loss_threshold=self.schedule.stop_loss_threshold,
+            stop_loss_patience=self.schedule.stop_loss_patience,
             per_device_train_batch_size=self.hardware.per_device_train_batch_size,
             per_device_eval_batch_size=self.hardware.per_device_eval_batch_size,
             gradient_accumulation_steps=self.hardware.gradient_accumulation_steps,
