@@ -282,7 +282,6 @@ def test_completion_eval_path_validate(tmp_path):
     ok.validate()
     assert uses_completion_eval(ok)
 
-
 def test_load_complete_skips_hold_out_with_completion_eval(tmp_path):
     path = tmp_path / "evals.json"
     path.write_text("[]", encoding="utf-8")

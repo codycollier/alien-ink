@@ -171,13 +171,38 @@ def test_tokenize_prompt_completion_masks_prompt():
     )
     assert encoded is not None
     prompt_len = len(tok("Hi", add_special_tokens=True)["input_ids"])
-    completion_ids = tok("Yo", add_special_tokens=False)["input_ids"]
+    completion_ids = tok(" Yo", add_special_tokens=False)["input_ids"]
     assert encoded["labels"][:prompt_len] == [-100] * prompt_len
     assert encoded["labels"][prompt_len:] == completion_ids
     assert encoded["input_ids"] == (
         tok("Hi", add_special_tokens=True)["input_ids"] + completion_ids
     )
     assert encoded["attention_mask"] == [1] * len(encoded["input_ids"])
+
+
+def test_tokenize_prompt_completion_preserves_existing_text_boundaries():
+    tok = _FakeEvalTok()
+    after_open_paren = tokenize_prompt_completion(
+        tok,
+        "population (",
+        "90%)",
+        add_special_tokens=True,
+    )
+    assert after_open_paren is not None
+    assert after_open_paren["labels"][-len(tok("90%)", add_special_tokens=False)["input_ids"]):] == tok(
+        "90%)", add_special_tokens=False
+    )["input_ids"]
+
+    explicit_space = tokenize_prompt_completion(
+        tok,
+        "population of ",
+        "10,000",
+        add_special_tokens=True,
+    )
+    assert explicit_space is not None
+    assert explicit_space["labels"][-len(tok("10,000", add_special_tokens=False)["input_ids"]):] == tok(
+        "10,000", add_special_tokens=False
+    )["input_ids"]
 
 
 def test_tokenize_prompt_completion_empty_completion():
@@ -210,6 +235,22 @@ def test_build_completion_eval_dataset(tmp_path: Path):
     assert "input_ids" in ds.column_names and "labels" in ds.column_names
     assert ds[0]["labels"].count(-100) > 0
     assert any(label != -100 for label in ds[0]["labels"])
+
+    limited = build_completion_eval_dataset(
+        path,
+        _FakeEvalTok(),
+        add_special_tokens=True,
+        max_samples=1,
+    )
+    assert len(limited) == 1
+
+    with pytest.raises(ValueError, match="max_samples"):
+        build_completion_eval_dataset(
+            path,
+            _FakeEvalTok(),
+            add_special_tokens=True,
+            max_samples=0,
+        )
 
 
 def test_load_eval_items_rejects_bad_shape(tmp_path: Path):

@@ -12,6 +12,6 @@
 ### Development principles
 
 * Clean, tight, and composable code
+* Abstractions are explicit, modular, and difficult to misconfigure
 * Functions are favored over classes or complex structures
 * Each package and module are semantically well encapsulated
-

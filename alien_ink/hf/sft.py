@@ -1,16 +1,9 @@
 """Full-parameter supervised fine-tuning of pretrained causal LMs.
 
-First fine-tuning stage from the model learning plan (Track B0): ordinary
-full-parameter training of an off-the-shelf Hugging Face checkpoint (or a
-local Alien Ink output dir) on packed causal-LM text blocks. No adapters, no
-quantization — optimizer state and gradient flow stay visible and debuggable.
-
-The data path is shared with pretraining (:func:`prepare_lm_datasets`); only
-model construction differs: :func:`~alien_ink.hf.model.load_hub_model_and_tokenizer`
-loads weights generically via ``AutoModelForCausalLM`` instead of initializing
-from scratch. Prefer defining a :class:`~alien_ink.hf.manifest.Manifest` with
-``stage="sft"`` in zdeck programs; this module is the runtime it materializes
-into.
+Full-parameter training of an off-the-shelf Hugging Face checkpoint (or a
+local Alien Ink output dir). SFT accepts either packed Hub text or supervised
+prompt/completion JSON with an explicit prompt-loss mask. No adapters or
+quantization: optimizer state and gradient flow stay visible and debuggable.
 """
 
 from __future__ import annotations
@@ -26,6 +19,7 @@ from alien_ink.com.device import collect_accelerator_info, introspect
 from alien_ink.com.env import load_env
 from alien_ink.com.log import banner, blank, detail, get_logger, header, step
 from alien_ink.com.wb import build_run_config, require_wandb_identity, set_wandb_dir, wandb_run
+from alien_ink.hf.completion import CompletionDataConfig, prepare_completion_datasets
 from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.metrics import (
     build_run_config_payload,
@@ -56,11 +50,11 @@ __all__ = ["SftConfig", "finetune"]
 class SftConfig:
     """Composable config for full-parameter fine-tuning of a pretrained LM.
 
-    ``data`` is a single Hub text corpus packed into causal-LM blocks exactly
-    like pretraining; ``model`` names the pretrained checkpoint to start from.
+    ``data`` is either packed Hub text or supervised prompt/completion JSON;
+    ``model`` names the pretrained checkpoint to start from.
     """
 
-    data: PretrainDataConfig
+    data: PretrainDataConfig | CompletionDataConfig
     model: PretrainedLmConfig = field(
         default_factory=lambda: PretrainedLmConfig(model_name="EleutherAI/pythia-160m")
     )
@@ -81,6 +75,7 @@ def log_sft_banner(
     *,
     title: str,
     run_label: str,
+    zdeck_name: str | None,
     config: SftConfig,
 ):
     """Log stars header, device introspection, then run summary.
@@ -99,11 +94,17 @@ def log_sft_banner(
 
     banner(title, logger=log)
     step(f"run: {run_label}", logger=log)
+    if zdeck_name:
+        detail(f"zdeck: {zdeck_name}", logger=log)
 
     tps = tokens_per_optimizer_step(
         per_device_train_batch_size=config.trainer.per_device_train_batch_size,
         gradient_accumulation_steps=config.trainer.gradient_accumulation_steps,
-        block_size=config.data.block_size,
+        block_size=(
+            config.data.max_length
+            if isinstance(config.data, CompletionDataConfig)
+            else config.data.block_size
+        ),
         world_size=accel.world_size,
     )
     detail(f"base model: {config.model.model_name}", logger=log)
@@ -135,6 +136,7 @@ def finetune(
     config: SftConfig,
     *,
     run_label: str = "regular",
+    zdeck_name: str | None = None,
     title: str = "Causal LM fine-tune",
     env_files: tuple[Path, ...] | None = None,
     wandb_entity: str | None = None,
@@ -170,7 +172,7 @@ def finetune(
 
     config.validate()
     accel, tokens_per_step = log_sft_banner(
-        title=title, run_label=run_label, config=config
+        title=title, run_label=run_label, zdeck_name=zdeck_name, config=config
     )
 
     blank(logger=log)
@@ -190,9 +192,14 @@ def finetune(
 
     model, tokenizer = load_hub_model_and_tokenizer(config.model)
     max_positions = model_max_positions(model)
-    if max_positions and config.data.block_size > max_positions:
+    data_max_length = (
+        config.data.max_length
+        if isinstance(config.data, CompletionDataConfig)
+        else config.data.block_size
+    )
+    if max_positions and data_max_length > max_positions:
         raise ValueError(
-            f"data.block_size ({config.data.block_size}) cannot exceed the "
+            f"data sequence length ({data_max_length}) cannot exceed the "
             f"pretrained model's context window ({max_positions})"
         )
     model_size = count_model_params(model, vocab_size=tokenizer.vocab_size)
@@ -207,7 +214,12 @@ def finetune(
         logger=log,
     )
 
-    train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
+    if isinstance(config.data, CompletionDataConfig):
+        train_dataset, eval_dataset = prepare_completion_datasets(
+            config.data, tokenizer
+        )
+    else:
+        train_dataset, eval_dataset = prepare_lm_datasets(config.data, tokenizer)
 
     log_configs: dict[str, Any] = {
         "data": config.data,

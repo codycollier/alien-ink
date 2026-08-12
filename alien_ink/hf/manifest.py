@@ -18,6 +18,7 @@ from typing import Any, Literal
 
 from alien_ink.com.log import get_logger
 from alien_ink.com.wb import require_wandb_identity
+from alien_ink.hf.completion import CompletionDataConfig
 from alien_ink.hf.curriculum import Curriculum
 from alien_ink.hf.ds import PretrainDataConfig
 from alien_ink.hf.model import CausalLmArchConfig, PretrainedLmConfig, gpt2_arch
@@ -289,10 +290,11 @@ class Manifest:
     takes a :class:`~alien_ink.hf.model.PretrainedLmConfig` (Hub id or local
     checkpoint loaded via ``AutoModelForCausalLM``).
 
-    ``data`` is a single corpus or a
-    :class:`~alien_ink.hf.curriculum.Curriculum` of sequenced corpora; with a
-    curriculum, ``schedule.max_steps`` must equal ``curriculum.total_steps()``.
-    Curricula are pretraining-only.
+    ``data`` is packed Hub text, supervised prompt/completion JSON, or a
+    :class:`~alien_ink.hf.curriculum.Curriculum` of sequenced Hub corpora. With
+    a curriculum, ``schedule.max_steps`` must equal
+    ``curriculum.total_steps()``. Curricula are pretraining-only;
+    completion data is SFT-only.
 
     Materializes a :class:`~alien_ink.hf.pretrain.PretrainConfig` via
     :meth:`to_pretrain_config` or an :class:`~alien_ink.hf.sft.SftConfig` via
@@ -303,7 +305,7 @@ class Manifest:
 
     run_name: str
     title: str
-    data: PretrainDataConfig | Curriculum
+    data: PretrainDataConfig | CompletionDataConfig | Curriculum
     stage: ManifestStage = "pre"
     model: CausalLmArchConfig | PretrainedLmConfig = field(default_factory=gpt2_arch)
     hardware: HardwareConfig = field(default_factory=mist_rtx_3070)
@@ -320,7 +322,7 @@ class Manifest:
         return replace(self, hardware=replace(self.hardware, **kw))
 
     def with_data(self, **kw: Any) -> Manifest:
-        """Replace fields on a plain ``PretrainDataConfig`` ``data``.
+        """Replace fields on a non-curriculum data config.
 
         Curricula are compositions; rebuild the ``Curriculum`` explicitly
         instead of patching it field-wise.
@@ -372,6 +374,11 @@ class Manifest:
                 "stage='pre' requires a CausalLmArchConfig model, got "
                 f"{type(self.model).__name__}"
             )
+        if self.stage == "pre" and isinstance(self.data, CompletionDataConfig):
+            raise ValueError(
+                "stage='pre' requires PretrainDataConfig or Curriculum data, "
+                "got CompletionDataConfig"
+            )
         if self.stage == "sft":
             if not isinstance(self.model, PretrainedLmConfig):
                 raise ValueError(
@@ -389,6 +396,7 @@ class Manifest:
         self.schedule.validate()
         if (
             isinstance(self.model, CausalLmArchConfig)
+            and not isinstance(self.data, CompletionDataConfig)
             and self.data.block_size > self.model.n_positions
         ):
             raise ValueError(
@@ -511,6 +519,7 @@ class Manifest:
         shared_kwargs: dict[str, Any] = dict(
             title=self.title,
             run_label=run_label,
+            zdeck_name=self.run_name,
             wandb_entity=self.wandb.entity,
             wandb_project=self.wandb.project,
             wandb_name=self.wandb.resolved_name(self.run_name),

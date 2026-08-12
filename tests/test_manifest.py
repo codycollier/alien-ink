@@ -12,6 +12,7 @@ import pytest
 pytest.importorskip("transformers")
 
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
+from alien_ink.hf.completion import CompletionDataConfig  # noqa: E402
 from alien_ink.hf.model import CausalLmArchConfig, PretrainedLmConfig, gpt2_arch  # noqa: E402
 from alien_ink.hf.manifest import (  # noqa: E402
     HardwareConfig,
@@ -103,6 +104,25 @@ def test_manifest_to_pretrain_config_merges_segments(tmp_path: Path, monkeypatch
     assert cfg.trainer.eval_steps == 100
     assert cfg.trainer.save_steps == 100
     assert cfg.trainer.report_to == "none"
+
+
+def test_manifest_routes_completion_data_to_sft_only(tmp_path: Path):
+    pairs = tmp_path / "pairs.json"
+    pairs.write_text(
+        '[{"slug":"x","prompt":"p","completion":"c"}]',
+        encoding="utf-8",
+    )
+    data = CompletionDataConfig(train_path=str(pairs))
+    sft = _manifest(
+        stage="sft",
+        data=data,
+        model=PretrainedLmConfig(model_name="EleutherAI/pythia-70m"),
+    )
+    assert sft.to_sft_config().data is data
+
+    pre = _manifest(data=data)
+    with pytest.raises(ValueError, match="CompletionDataConfig"):
+        pre.validate()
 
 
 def test_manifest_wandb_name_override(tmp_path: Path, monkeypatch):

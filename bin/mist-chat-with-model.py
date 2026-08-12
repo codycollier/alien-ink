@@ -5,7 +5,8 @@ Each turn is a fresh prompt — no history. Type a sentence starter or fragment;
 the model continues it in plain text (suited to base LMs pretrained on raw corpus).
 
   ./bin/mist-chat-with-model.py pre_gpt-2_wikitext_5k_mist
-  ./bin/mist-chat-with-model.py sft_pythia-70m_geo_100ep_mist --max-new-tokens 120
+  ./bin/mist-chat-with-model.py sft_pythia-70m_geo_fact_memorize_mist --max-new-tokens 120
+  ./bin/mist-chat-with-model.py sft_pythia-70m_geo_sentence_memorize_mist --max-new-tokens 120
 
 Requires a finished (or checkpointed) run under ``output/train/<run_name>/``.
 """

@@ -123,9 +123,8 @@ def prepare_lm_datasets(
     Train is an iterable stream when ``mode='stream'``, otherwise a
     materialized map-style dataset. Eval is always map-style.
 
-    When ``data.completion_eval_path`` is set, train uses the full Hub split
-    (no hold-out) and eval is teacher-forced prompt/completion rows from that
-    JSON, with prompt tokens masked in ``labels``.
+    When ``data.completion_eval_path`` is set, train uses the full
+    Hub split and eval is built from that JSON.
     """
     from alien_ink.hf.eval import build_completion_eval_dataset
 
@@ -156,6 +155,7 @@ def prepare_lm_datasets(
             data.completion_eval_path,
             tokenizer,
             add_special_tokens=add_special_tokens,
+            max_samples=data.max_eval_samples,
         )
         if verbose:
             if not isinstance(train_dataset, IterableDataset):
@@ -187,6 +187,7 @@ def log_pretrain_banner(
     *,
     title: str,
     run_label: str,
+    zdeck_name: str | None,
     config: PretrainConfig,
 ):
     """Log stars header, device introspection, then run summary.
@@ -205,6 +206,8 @@ def log_pretrain_banner(
 
     banner(title, logger=log)
     step(f"run: {run_label}", logger=log)
+    if zdeck_name:
+        detail(f"zdeck: {zdeck_name}", logger=log)
 
     world_size = accel.world_size or distributed_world_size()
     tps = tokens_per_optimizer_step(
@@ -242,6 +245,7 @@ def pretrain(
     config: PretrainConfig,
     *,
     run_label: str = "regular",
+    zdeck_name: str | None = None,
     title: str = "Causal LM from scratch",
     env_files: tuple[Path, ...] | None = None,
     wandb_entity: str | None = None,
@@ -284,7 +288,7 @@ def pretrain(
 
     config.validate()
     accel, tokens_per_step = log_pretrain_banner(
-        title=title, run_label=run_label, config=config
+        title=title, run_label=run_label, zdeck_name=zdeck_name, config=config
     )
 
     blank(logger=log)

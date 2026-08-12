@@ -82,13 +82,15 @@ class PretrainDataConfig:
             raise ValueError(
                 f"mode must be one of stream, subset, complete; got {self.mode!r}"
             )
-        if self.completion_eval_path is not None:
-            path = Path(self.completion_eval_path)
-            if not str(self.completion_eval_path).strip():
-                raise ValueError("completion_eval_path must be a non-empty path")
+        for field_name, value in (("completion_eval_path", self.completion_eval_path),):
+            if value is None:
+                continue
+            path = Path(value)
+            if not str(value).strip():
+                raise ValueError(f"{field_name} must be a non-empty path")
             if not path.is_file():
-                raise ValueError(f"completion_eval_path does not exist: {path}")
-        elif self.max_eval_samples < 1:
+                raise ValueError(f"{field_name} does not exist: {path}")
+        if self.max_eval_samples < 1:
             raise ValueError(
                 f"max_eval_samples must be >= 1, got {self.max_eval_samples}"
             )

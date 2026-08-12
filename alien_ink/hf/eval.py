@@ -22,7 +22,7 @@ from collections import Counter
 from dataclasses import asdict, dataclass, field
 from datetime import datetime, timezone
 from pathlib import Path
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import torch
 from transformers import AutoModelForCausalLM, PreTrainedModel, PreTrainedTokenizerBase
@@ -30,7 +30,6 @@ from transformers import AutoModelForCausalLM, PreTrainedModel, PreTrainedTokeni
 from alien_ink.com.device import move_module_to_device, torch_device
 from alien_ink.com.log import banner, blank, detail, get_logger, header, step
 from alien_ink.hf.gen import generate_completion_result
-from alien_ink.hf.manifest import Manifest
 from alien_ink.hf.metrics import write_json
 from alien_ink.hf.model import (
     CausalLmArchConfig,
@@ -39,6 +38,9 @@ from alien_ink.hf.model import (
     load_pretrained_model,
     load_tokenizer,
 )
+
+if TYPE_CHECKING:
+    from alien_ink.hf.manifest import Manifest
 
 log = get_logger("hf.eval")
 
@@ -279,6 +281,7 @@ def tokenize_prompt_completion(
     completion: str,
     *,
     add_special_tokens: bool,
+    loss_on_prompt: bool = False,
 ) -> dict[str, list[int]] | None:
     """Tokenize one prompt/completion pair with prompt tokens masked in labels.
 
@@ -292,14 +295,30 @@ def tokenize_prompt_completion(
         prompt,
         add_special_tokens=add_special_tokens,
     )["input_ids"]
+    # Eval JSON stores human-readable fields without requiring callers to
+    # encode boundary whitespace into either value. Supply the ordinary text
+    # boundary unless whitespace/punctuation already makes it unnecessary.
+    no_space_after = "([{/'\""
+    no_space_before = ".,;:!?)]}"
+    needs_space = (
+        not prompt[-1].isspace()
+        and not completion[0].isspace()
+        and prompt[-1] not in no_space_after
+        and completion[0] not in no_space_before
+    )
+    completion_text = f" {completion}" if needs_space else completion
     completion_ids = tokenizer(
-        completion,
+        completion_text,
         add_special_tokens=False,
     )["input_ids"]
     if not completion_ids:
         return None
     input_ids = list(prompt_ids) + list(completion_ids)
-    labels = [-100] * len(prompt_ids) + list(completion_ids)
+    labels = (
+        list(prompt_ids) + list(completion_ids)
+        if loss_on_prompt
+        else [-100] * len(prompt_ids) + list(completion_ids)
+    )
     return {
         "input_ids": input_ids,
         "labels": labels,
@@ -312,6 +331,8 @@ def build_completion_eval_dataset(
     tokenizer: PreTrainedTokenizerBase,
     *,
     add_special_tokens: bool = True,
+    max_samples: int | None = None,
+    loss_on_prompt: bool = False,
 ):
     """Map-style Dataset of masked prompt/completion rows from an eval JSON.
 
@@ -320,7 +341,11 @@ def build_completion_eval_dataset(
     """
     from datasets import Dataset
 
+    if max_samples is not None and max_samples < 1:
+        raise ValueError(f"max_samples must be >= 1 when set, got {max_samples}")
     items = load_eval_items(path)
+    if max_samples is not None:
+        items = items[:max_samples]
     rows: list[dict[str, list[int]]] = []
     for item in items:
         encoded = tokenize_prompt_completion(
@@ -328,6 +353,7 @@ def build_completion_eval_dataset(
             item.prompt,
             item.completion,
             add_special_tokens=add_special_tokens,
+            loss_on_prompt=loss_on_prompt,
         )
         if encoded is not None:
             rows.append(encoded)
