@@ -4,18 +4,16 @@
 #   ./bin/mist-train-baseline-perf.sh gpt-2
 #   ./bin/mist-train-baseline-perf.sh gpt-neox
 #   ./bin/mist-train-baseline-perf.sh pythia
-#   ./bin/mist-train-baseline-perf.sh gpt-2-tinygrad
 #
 # Each model runs from scratch for 0.25 epochs on the same complete WikiText-103
 # dataset. W&B entity / project / name are set inside each zdeck manifest.
-# ``gpt-2-tinygrad`` uses the tinygrad backend; the rest use Hugging Face Trainer.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
 mkdir -p output/train
 
 if [[ $# -lt 1 ]]; then
-    echo "usage: $0 {gpt-2|gpt-neox|pythia|gpt-2-tinygrad} [training args...]" >&2
+    echo "usage: $0 {gpt-2|gpt-neox|pythia} [training args...]" >&2
     exit 2
 fi
 family="$1"
@@ -25,8 +23,7 @@ case "$family" in
     gpt-2) module="alien_ink/zdeck/baseline_perf_gpt-2_mist.py"; name="baseline-perf-gpt-2-mist" ;;
     gpt-neox) module="alien_ink/zdeck/baseline_perf_gpt-neox_mist.py"; name="baseline-perf-gpt-neox-mist" ;;
     pythia) module="alien_ink/zdeck/baseline_perf_pythia-160m_mist.py"; name="baseline-perf-pythia-160m-mist" ;;
-    gpt-2-tinygrad) module="alien_ink/zdeck/baseline_perf_gpt-2_tinygrad_mist.py"; name="baseline-perf-gpt-2-tinygrad-mist" ;;
-    *) echo "unknown family: $family (expected gpt-2, gpt-neox, pythia, or gpt-2-tinygrad)" >&2; exit 2 ;;
+    *) echo "unknown family: $family (expected gpt-2, gpt-neox, or pythia)" >&2; exit 2 ;;
 esac
 
 stamp=$(date +%Y%m%d-%H%M%S)

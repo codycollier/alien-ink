@@ -27,7 +27,6 @@ dependencies = [
     "accelerate>=1.1.0",
     "datasets>=2.14",
     'python-dotenv>=1.0',
-    "tinygrad",
     # Transformers 5 requires PyTorch >=2.4. Keep the runtime floor aligned
     # with the current supported Trainer/model stack rather than allowing a
     # resolver to install an unusable combination.
