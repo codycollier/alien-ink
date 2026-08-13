@@ -14,7 +14,11 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 mkdir -p output/train
 
-family="${1:?usage: $0 {gpt-2|gpt-neox|pythia|gpt-2-tinygrad} [training args...]}"
+if [[ $# -lt 1 ]]; then
+    echo "usage: $0 {gpt-2|gpt-neox|pythia|gpt-2-tinygrad} [training args...]" >&2
+    exit 2
+fi
+family="$1"
 shift
 
 case "$family" in
