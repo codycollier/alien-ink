@@ -165,9 +165,9 @@ class GPT2:
         logits = self.lm_head(self.ln_f(x))
         if targets is None:
             return logits
-        loss = logits[:, :-1, :].contiguous().sparse_categorical_crossentropy(
-            targets[:, 1:].contiguous()
-        )
+        # Gather-based NLL: avoid sparse_categorical_crossentropy's (B,T,V) one-hot.
+        log_probs = logits[:, :-1, :].log_softmax()
+        loss = -log_probs.gather(2, targets[:, 1:].unsqueeze(-1)).squeeze(-1).mean()
         return logits, loss
 
 

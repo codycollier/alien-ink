@@ -334,6 +334,12 @@ def pretrain(
         )
 
     world_size = max(1, accel.world_size or distributed_world_size())
+    steps_per_epoch = optimizer_steps_per_epoch(
+        len(train_dataset),
+        per_device_train_batch_size=config.trainer.per_device_train_batch_size,
+        gradient_accumulation_steps=config.trainer.gradient_accumulation_steps,
+        world_size=world_size,
+    )
     if config.trainer.uses_epochs():
         config = replace(
             config,
@@ -342,12 +348,6 @@ def pretrain(
                 num_train_examples=len(train_dataset),
                 world_size=world_size,
             ),
-        )
-        steps_per_epoch = optimizer_steps_per_epoch(
-            len(train_dataset),
-            per_device_train_batch_size=config.trainer.per_device_train_batch_size,
-            gradient_accumulation_steps=config.trainer.gradient_accumulation_steps,
-            world_size=world_size,
         )
         max_steps = max(
             1, math.ceil(config.trainer.num_train_epochs * steps_per_epoch)
@@ -460,16 +460,17 @@ def pretrain(
                     set_optimizer_lr(optimizer, lr)
                     if group_is_jit_ready(group, accum):
                         stacked = Tensor(np.stack(group))
-                        loss_t = jit_step(stacked)
+                        loss_t, grad_norm = jit_step(stacked)
                         last_loss = float(loss_t.item())
                     else:
-                        last_loss = train_step_variable(
+                        last_loss, grad_norm = train_step_variable(
                             model,
                             optimizer,
                             group,
                             max_grad_norm=config.trainer.max_grad_norm,
                         )
                     global_step += 1
+                    epoch_frac = global_step / float(steps_per_epoch)
                     if global_step % config.trainer.logging_steps == 0:
                         detail(
                             f"step {global_step}/{max_steps}  "
@@ -480,13 +481,15 @@ def pretrain(
                             import wandb
 
                             if wandb.run is not None:
-                                wandb.log(
-                                    {
-                                        "train/loss": last_loss,
-                                        "train/lr": lr,
-                                    },
-                                    step=global_step,
-                                )
+                                # Match HF Trainer / transformers W&B keys.
+                                payload = {
+                                    "train/loss": last_loss,
+                                    "train/learning_rate": lr,
+                                    "train/epoch": epoch_frac,
+                                }
+                                if grad_norm is not None:
+                                    payload["train/grad_norm"] = grad_norm
+                                wandb.log(payload, step=global_step)
                     if global_step % config.trainer.eval_steps == 0:
                         eval_loss = evaluate_loss(model, eval_batches)
                         detail(f"eval loss: {eval_loss:.4f}", logger=log)
@@ -495,7 +498,11 @@ def pretrain(
 
                             if wandb.run is not None:
                                 wandb.log(
-                                    {"eval/loss": eval_loss}, step=global_step
+                                    {
+                                        "eval/loss": eval_loss,
+                                        "train/epoch": epoch_frac,
+                                    },
+                                    step=global_step,
                                 )
                     if global_step % config.trainer.save_steps == 0:
                         _save_checkpoint(

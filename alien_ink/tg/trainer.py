@@ -6,7 +6,7 @@ import math
 from collections.abc import Callable, Sequence
 
 import numpy as np
-from tinygrad import Tensor, TinyJit, nn
+from tinygrad import Tensor, TinyJit, dtypes, nn
 from tinygrad.nn.optim import Optimizer, OptimizerGroup
 from tinygrad.nn.state import get_parameters, get_state_dict, safe_save
 
@@ -113,12 +113,22 @@ def clip_grad_norm_(params: Sequence[Tensor], max_norm: float) -> Tensor | None:
     clip_coef = (max_norm / (total + 1e-6)).clip(0.0, 1.0)
     for param in params:
         if param.grad is not None:
-            param.grad.assign(param.grad * clip_coef)
+            grad = param.grad
+            param.grad.assign(grad * clip_coef.cast(grad.dtype))
     return total
 
 
 def _optimizer_params(optimizer: Optimizer) -> list[Tensor]:
     return list(optimizer.params)
+
+
+def _zero_grad_bufs(params: Sequence[Tensor]) -> None:
+    """Allocate zero grad buffers so every microbatch uses the accumulate path."""
+    for param in params:
+        param.grad = Tensor.zeros(
+            *param.shape, device=param.device, dtype=param.dtype
+        )
+    Tensor.realize(*[param.grad for param in params if param.grad is not None])
 
 
 def make_train_step(
@@ -127,45 +137,61 @@ def make_train_step(
     *,
     max_grad_norm: float,
     accum_steps: int = 1,
-) -> Callable[[Tensor], Tensor]:
+) -> Callable[[Tensor], tuple[Tensor, float | None]]:
     """TinyJit train step.
 
     ``accum_steps == 1``: ``idx`` is ``(B, T)``.
     ``accum_steps > 1``: ``idx`` is ``(accum, B, T)`` with a fixed microbatch size.
+
+    Only a single microbatch forward/backward is jitted. Accumulating inside one
+    TinyJit keeps all microbatch activations alive and OOMs at GPT-2 Mist scale.
+
+    Returns ``(mean_loss, grad_norm)`` where ``grad_norm`` is the unclipped
+    global norm (or ``None`` when clipping is disabled).
     """
     params = _optimizer_params(optimizer)
-    scale = 1.0 / float(max(1, accum_steps))
-
-    if accum_steps <= 1:
-
-        @TinyJit
-        @Tensor.train()
-        def step(idx: Tensor) -> Tensor:
-            optimizer.zero_grad()
-            _, loss = model(idx, idx)
-            loss.backward()
-            if max_grad_norm > 0:
-                clip_grad_norm_(params, max_grad_norm)
-            return loss.realize(*optimizer.schedule_step())
-
-        return step
+    accum = max(1, int(accum_steps))
+    scale = 1.0 / float(accum)
 
     @TinyJit
     @Tensor.train()
-    def accum_step(idx: Tensor) -> Tensor:
-        optimizer.zero_grad()
-        loss_acc: Tensor | None = None
-        for i in range(accum_steps):
-            _, loss = model(idx[i], idx[i])
-            (loss * scale).backward()
-            loss_acc = loss if loss_acc is None else loss_acc + loss
-        assert loss_acc is not None
-        mean_loss = loss_acc * scale
-        if max_grad_norm > 0:
-            clip_grad_norm_(params, max_grad_norm)
-        return mean_loss.realize(*optimizer.schedule_step())
+    def micro_step(idx: Tensor) -> Tensor:
+        _, loss = model(idx, idx)
+        backward_loss = loss if accum <= 1 else loss * scale
+        backward_loss.backward()
+        grads = [p.grad for p in params if p.grad is not None]
+        return loss.realize(*grads)
 
-    return accum_step
+    def step(idx: Tensor) -> tuple[Tensor, float | None]:
+        optimizer.zero_grad()
+        _zero_grad_bufs(params)
+        with Tensor.train():
+            if accum <= 1:
+                mean_loss = micro_step(idx)
+            else:
+                loss_acc: Tensor | None = None
+                # Contiguous copies: TinyJit keys on input UOps, so idx[i] views
+                # (different SHRINK offsets) would miss the captured graph.
+                micros = [idx[i].contiguous() for i in range(accum)]
+                Tensor.realize(*micros)
+                for batch in micros:
+                    loss = micro_step(batch)
+                    loss_acc = loss if loss_acc is None else loss_acc + loss
+                assert loss_acc is not None
+                mean_loss = loss_acc * scale
+            grad_norm_t: Tensor | None = None
+            if max_grad_norm > 0:
+                grad_norm_t = clip_grad_norm_(params, max_grad_norm)
+            # float32 scalar so callers can use .item() under bf16 training.
+            mean_loss_f = mean_loss.cast(dtypes.float)
+            extras = list(optimizer.schedule_step())
+            if grad_norm_t is not None:
+                extras.append(grad_norm_t)
+            mean_loss_f.realize(*extras)
+            grad_norm = float(grad_norm_t.item()) if grad_norm_t is not None else None
+            return mean_loss_f, grad_norm
+
+    return step
 
 
 def train_step_variable(
@@ -174,24 +200,33 @@ def train_step_variable(
     microbatches: Sequence[np.ndarray],
     *,
     max_grad_norm: float,
-) -> float:
+) -> tuple[float, float | None]:
     """Non-jitted optimizer step for a ragged last group of microbatches."""
     params = _optimizer_params(optimizer)
     scale = 1.0 / float(len(microbatches))
     optimizer.zero_grad()
+    _zero_grad_bufs(params)
     loss_acc: Tensor | None = None
     with Tensor.train():
         for arr in microbatches:
             tokens = Tensor(arr)
             _, loss = model(tokens, tokens)
             (loss * scale).backward()
+            # Realize grads so this microbatch's activations can free.
+            Tensor.realize(*[p.grad for p in params if p.grad is not None])
             loss_acc = loss if loss_acc is None else loss_acc + loss
         assert loss_acc is not None
         mean_loss = loss_acc * scale
+        grad_norm_t: Tensor | None = None
         if max_grad_norm > 0:
-            clip_grad_norm_(params, max_grad_norm)
-        mean_loss.realize(*optimizer.schedule_step())
-    return float(mean_loss.item())
+            grad_norm_t = clip_grad_norm_(params, max_grad_norm)
+        mean_loss_f = mean_loss.cast(dtypes.float)
+        extras = list(optimizer.schedule_step())
+        if grad_norm_t is not None:
+            extras.append(grad_norm_t)
+        mean_loss_f.realize(*extras)
+        grad_norm = float(grad_norm_t.item()) if grad_norm_t is not None else None
+    return float(mean_loss_f.item()), grad_norm
 
 
 def evaluate_loss(
@@ -209,7 +244,7 @@ def evaluate_loss(
     for arr in batches[:limit]:
         tokens = Tensor(arr)
         _, loss = model(tokens, tokens)
-        total += float(loss.item())
+        total += float(loss.cast(dtypes.float).item())
         n += 1
     return total / n
 

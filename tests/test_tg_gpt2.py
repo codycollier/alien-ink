@@ -5,7 +5,8 @@ from __future__ import annotations
 import math
 
 import numpy as np
-from tinygrad import Tensor
+from tinygrad import Tensor, dtypes
+from tinygrad.nn.state import get_parameters
 
 from alien_ink.hf.ds import HubTextSource, PretrainDataConfig
 from alien_ink.hf.manifest import HardwareConfig, Manifest, ScheduleConfig, WandbConfig
@@ -108,8 +109,9 @@ def test_tiny_gpt2_train_step_changes_weights():
     )
     step = make_train_step(model, optimizer, max_grad_norm=1.0, accum_steps=1)
     tokens = Tensor(np.random.default_rng(1).integers(0, 128, size=(2, 16), dtype=np.int32))
-    loss = step(tokens)
+    loss, grad_norm = step(tokens)
     assert math.isfinite(float(loss.item()))
+    assert grad_norm is not None and math.isfinite(grad_norm)
     after = model.wte.weight.numpy()
     assert not np.allclose(before, after)
 
@@ -121,6 +123,30 @@ def test_cosine_lr_warmup_then_decay():
     end = cosine_lr(100, max_steps=100, warmup_steps=10, learning_rate=1.0)
     assert 0.0 <= end <= 1e-6
     assert 0.0 < mid < 1.0
+
+
+def test_clip_grad_norm_preserves_bf16_dtype():
+    Tensor.manual_seed(0)
+    model = build_gpt2(_tiny_arch(), vocab_size=128)
+    for param in get_parameters(model):
+        param.replace(param.cast(dtypes.bfloat16).contiguous()).realize()
+    optimizer = build_optimizer(
+        model,
+        learning_rate=1e-2,
+        adam_beta1=0.9,
+        adam_beta2=0.95,
+        weight_decay=0.1,
+    )
+    step = make_train_step(model, optimizer, max_grad_norm=1.0, accum_steps=2)
+    tokens = Tensor(
+        np.random.default_rng(2).integers(0, 128, size=(2, 2, 16), dtype=np.int32)
+    )
+    loss, grad_norm = step(tokens)
+    assert math.isfinite(float(loss.item()))
+    assert grad_norm is not None and math.isfinite(grad_norm)
+    for param in optimizer.params:
+        if param.grad is not None:
+            assert param.grad.dtype == dtypes.bfloat16
 
 
 def test_software_versions_include_tinygrad():
