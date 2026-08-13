@@ -98,6 +98,22 @@ Fits comfortably on 8 GB with bf16/fp16 and gradient checkpointing **off**
 (the small vocab leaves headroom); turn checkpointing back on if a variant
 OOMs.
 
+### Tinygrad backend
+
+The Hugging Face Trainer path (`family="gpt-2"`) is unchanged. A sibling
+tinygrad runtime in `alien_ink.tg` implements the same 124M GPT-2
+(`gelu_new`, dropout 0.1, tied embeddings, tokenizer vocab) and is launched
+from [`baseline_perf_gpt-2_tinygrad_mist.py`](../alien_ink/zdeck/baseline_perf_gpt-2_tinygrad_mist.py).
+It reuses HF tokenize/pack and schedule knobs; checkpoints are safetensors,
+not `GPT2LMHeadModel`. Chat and completion eval stay on the HF run.
+
+Compare:
+
+```bash
+./bin/mist-train-baseline-perf.sh gpt-2
+./bin/mist-train-baseline-perf.sh gpt-2-tinygrad
+```
+
 ### Generation
 
 | Setting | Default |

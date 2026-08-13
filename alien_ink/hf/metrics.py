@@ -137,6 +137,7 @@ def collect_software_versions() -> dict[str, str | None]:
     return {
         "alien_ink": _ver("alien-ink"),
         "torch": _ver("torch"),
+        "tinygrad": _ver("tinygrad"),
         "transformers": _ver("transformers"),
         "datasets": _ver("datasets"),
         "accelerate": _ver("accelerate"),

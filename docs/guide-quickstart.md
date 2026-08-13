@@ -38,6 +38,7 @@ python alien_ink/zdeck/sft_pythia-160m_geo_mist.py          # SFT pythia-160m on
 ./bin/mist-train-baseline-perf.sh gpt-2                    # comparable 0.25-epoch perf baselines
 ./bin/mist-train-baseline-perf.sh gpt-neox
 ./bin/mist-train-baseline-perf.sh pythia                   # Pythia-160M
+./bin/mist-train-baseline-perf.sh gpt-2-tinygrad           # same GPT-2 knobs, tinygrad backend
 ```
 
 Or background one with `./bin/pretrain-mist.sh` (edit the script to select a
