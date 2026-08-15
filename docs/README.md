@@ -16,6 +16,7 @@ of GPT-2, GPT-NeoX, Pythia, Llama/SmolLM2, and Gemma architectures) and `sft`
 | `guide-` | Opinionated operating advice — how to run things well |
 | `reference-` | How the code and data work today — kept in sync with the repo |
 | `roadmap-` | Plans and speculation — what could come next, in decreasing certainty |
+| `xp-` | Analysis of completed experiments and recommendations for follow-up work |
 
 ## Guides
 
@@ -23,6 +24,7 @@ of GPT-2, GPT-NeoX, Pythia, Llama/SmolLM2, and Gemma architectures) and `sft`
 |---|---|
 | [Quickstart](guide-quickstart.md) | Setup, running zdeck programs, completions, evals — the daily commands |
 | [RTX 3070 training](guide-rtx-3070-training.md) | Mist playbook — batch/accumulation settings per family, benchmark discipline |
+| [Pythia on Mist](guide-pythia-chinchilla-mist.md) | OOM-safe Pythia options and Chinchilla token/step budgets for the RTX 3070 |
 
 ## References
 
@@ -33,6 +35,12 @@ of GPT-2, GPT-NeoX, Pythia, Llama/SmolLM2, and Gemma architectures) and `sft`
 | [Model families](reference-model-families.md) | GPT-2, GPT-NeoX, Pythia, Gemma, Llama/SmolLM2 — architecture, tokenizers, VRAM, zdeck pairings; SFT of pretrained checkpoints |
 | [GPU memory](reference-gpu-memory.md) | VRAM budget — params, Adam, activations, logits; Mist worked examples |
 | [Completions and evals](reference-completions-and-eval.md) | Generation REPL, family-aware gen config, spot checks, the completion eval harness |
+
+## Experimental analysis
+
+| Doc | Contents |
+|---|---|
+| [Memorization experiments — 2026-08-14](xp-ai-analysis-2026-08-14.md) | Results from direct-completion and corpus memorization runs, evaluation caveats, and prioritized QA follow-up experiments |
 
 ## Roadmaps
 
