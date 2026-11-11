@@ -12,7 +12,7 @@ model, W&B, and schedule alone.
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import dataclass, field, replace
+from dataclasses import dataclass, field, fields, replace
 from pathlib import Path
 from typing import Any, Literal
 
@@ -428,30 +428,31 @@ class Manifest:
                 f"data.block_size ({self.data.block_size}) cannot exceed "
                 f"model.n_positions ({self.model.n_positions})"
             )
+        trainer = self._trainer_config()
         if isinstance(self.data, Curriculum):
-            self._validate_curriculum_schedule()
+            self._validate_curriculum_schedule(trainer)
 
-    def _validate_curriculum_schedule(self) -> None:
-        """Check the schedule against curriculum phase budgets.
+    def _validate_curriculum_schedule(self, trainer: CausalLmTrainerConfig) -> None:
+        """Check the effective trainer schedule against curriculum phase budgets.
 
-        The schedule stays the explicit source of truth: zdeck programs set
+        Zdeck programs normally set
         ``max_steps=CURRICULUM.total_steps()``. Phase boundaries that miss a
         ``save_steps`` tick only warn — a checkpoint exactly at the boundary
         lets followup phases be re-run from the same base.
         """
         total = self.data.total_steps()
-        if self.schedule.uses_epochs():
+        if trainer.uses_epochs():
             raise ValueError(
                 "curriculum data requires step mode; set "
                 f"schedule.max_steps={total} (curriculum.total_steps()), "
                 "not epoch mode (max_steps=-1)"
             )
-        if self.schedule.max_steps != total:
+        if trainer.max_steps != total:
             raise ValueError(
-                f"schedule.max_steps ({self.schedule.max_steps}) must equal "
+                f"effective trainer max_steps ({trainer.max_steps}) must equal "
                 f"curriculum.total_steps() ({total})"
             )
-        save_steps = self.schedule.cadence()["save_steps"]
+        save_steps = trainer.save_steps
         # Final boundary is training end; the model is saved there regardless.
         unaligned = [
             boundary
@@ -470,7 +471,7 @@ class Manifest:
     def _trainer_config(self) -> CausalLmTrainerConfig:
         """Materialize the trainer config shared by both stages."""
         cadence = self.schedule.cadence()
-        return CausalLmTrainerConfig(
+        config = CausalLmTrainerConfig(
             output_dir=self.output_dir(),
             run_name=self.wandb.resolved_name(self.run_name),
             max_steps=self.schedule.max_steps,
@@ -504,8 +505,13 @@ class Manifest:
             torch_compile=self.hardware.torch_compile,
             optim=self.hardware.optim,
             report_to="wandb" if self.wandb.enabled else "none",
-            **dict(self.trainer_overrides),
         )
+        unknown = set(self.trainer_overrides) - {f.name for f in fields(config)}
+        if unknown:
+            raise ValueError(f"unknown trainer override fields: {sorted(unknown)}")
+        config = replace(config, **dict(self.trainer_overrides))
+        config.validate()
+        return config
 
     def to_pretrain_config(self) -> PretrainConfig:
         """Materialize the runtime :class:`PretrainConfig` this manifest describes."""

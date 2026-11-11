@@ -4,16 +4,18 @@ from __future__ import annotations
 
 import importlib
 import inspect
+import json
 import pkgutil
+from collections.abc import Mapping
+from dataclasses import replace
 from pathlib import Path
 
 import pytest
 
 pytest.importorskip("transformers")
 
-from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 from alien_ink.hf.completion import CompletionDataConfig  # noqa: E402
-from alien_ink.hf.model import CausalLmArchConfig, PretrainedLmConfig, gpt2_arch  # noqa: E402
+from alien_ink.hf.ds import HubTextSource, PretrainDataConfig  # noqa: E402
 from alien_ink.hf.manifest import (  # noqa: E402
     HardwareConfig,
     Manifest,
@@ -23,6 +25,7 @@ from alien_ink.hf.manifest import (  # noqa: E402
     mist_rtx_3070_gemma,
     scaled_trainer_steps,
 )
+from alien_ink.hf.model import CausalLmArchConfig, PretrainedLmConfig, gpt2_arch  # noqa: E402
 
 
 def _minimal_data(**overrides) -> PretrainDataConfig:
@@ -329,8 +332,39 @@ def test_schedule_validates_ratio_and_cadence():
         ScheduleConfig(eval_steps=30, save_steps=100).validate()
 
 
-def test_all_zdeck_manifests_are_explicit_and_valid():
+def test_all_zdeck_manifests_are_explicit_and_valid(tmp_path):
     import alien_ink.zdeck as zdeck
+    from alien_ink.hf.curriculum import Curriculum
+
+    fixture = tmp_path / "completion.json"
+    fixture.write_text(
+        json.dumps(
+            [{"slug": "example", "prompt": "The capital is", "completion": "Austin"}]
+        )
+    )
+
+    def local_data(data):
+        if isinstance(data, CompletionDataConfig):
+            return replace(data, train_path=str(fixture), eval_path=str(fixture))
+        if isinstance(data, PretrainDataConfig):
+            return (
+                replace(data, completion_eval_path=str(fixture))
+                if data.completion_eval_path
+                else data
+            )
+        assert isinstance(data, Curriculum)
+        evaluation = data.eval_data
+        if isinstance(evaluation, Mapping):
+            evaluation = {name: local_data(value) for name, value in evaluation.items()}
+        elif evaluation is not None:
+            evaluation = local_data(evaluation)
+        return replace(
+            data,
+            phases=tuple(
+                replace(phase, data=local_data(phase.data)) for phase in data.phases
+            ),
+            eval_data=evaluation,
+        )
 
     required_arch_fields = {
         "hidden_act",
@@ -360,7 +394,7 @@ def test_all_zdeck_manifests_are_explicit_and_valid():
     for name in modules:
         module = importlib.import_module(f"alien_ink.zdeck.{name}")
         manifest = module.MANIFEST
-        manifest.validate()
+        replace(manifest, data=local_data(manifest.data)).validate()
         source = inspect.getsource(module)
         if isinstance(manifest.model, CausalLmArchConfig):
             required_model_fields = required_arch_fields
@@ -370,3 +404,29 @@ def test_all_zdeck_manifests_are_explicit_and_valid():
         for field_name in required_model_fields:
             assert f"{field_name}=" in source, f"{name} omits {field_name}"
         assert "warmup_ratio=" in source, f"{name} omits warmup_ratio"
+
+
+def test_trainer_overrides_replace_base_fields():
+    manifest = _manifest().with_trainer_knobs(learning_rate=0.001, adam_beta2=0.95)
+    config = manifest.to_pretrain_config().trainer
+    assert config.learning_rate == 0.001
+    assert config.adam_beta2 == 0.95
+
+
+def test_trainer_overrides_reject_unknown_fields():
+    with pytest.raises(ValueError, match="unknown trainer override fields.*bogus"):
+        _manifest().with_trainer_knobs(bogus=True).validate()
+
+
+def test_trainer_overrides_validate_final_values():
+    with pytest.raises(ValueError, match="learning_rate"):
+        _manifest().with_trainer_knobs(learning_rate=-1).validate()
+
+
+def test_curriculum_checks_effective_step_budget():
+    from alien_ink.hf.curriculum import Curriculum, CurriculumPhase
+
+    data = Curriculum(phases=(CurriculumPhase(data=_minimal_data(), steps=5000),))
+    manifest = _manifest(data=data).with_trainer_knobs(max_steps=6000)
+    with pytest.raises(ValueError, match="must equal"):
+        manifest.validate()

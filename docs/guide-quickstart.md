@@ -72,3 +72,12 @@ manifests, [model families](reference-model-families.md) for architectures,
 [datasets](reference-datasets.md) for corpora, and
 [completions and evals](reference-completions-and-eval.md) for generation and
 scoring details.
+
+## Run artifacts
+
+Training writes `run_config.json` and `run_summary.json` under the run's output
+folder. In new run configs, `model_size` contains measured parameter counts;
+`model` contains the pretrained-model configuration for SFT, while `arch`
+contains the architecture configuration for pretraining. Older pretraining
+configs stored parameter counts under `model`. Historical files are unchanged;
+readers supporting both layouts should check `model_size` first.

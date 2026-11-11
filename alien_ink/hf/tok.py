@@ -4,7 +4,8 @@ from __future__ import annotations
 
 from typing import Any
 
-from datasets import IterableDataset
+from datasets import Dataset, Features, IterableDataset
+from datasets.iterable_dataset import ExamplesIterable
 
 
 def column_names(dataset) -> list[str]:
@@ -55,12 +56,95 @@ def tokenize_text(
     return dataset.map(tokenize_function, **kwargs)
 
 
-def _chunk_document(values: list, block_size: int) -> list:
-    """Slice one document's token list into full ``block_size`` blocks."""
-    total = (len(values) // block_size) * block_size
-    if total < block_size:
-        return []
-    return [values[i : i + block_size] for i in range(0, total, block_size)]
+def _pack_rows(rows, *, block_size: int, respect_document_boundaries: bool):
+    """Pack one iterator; its incomplete final block is discarded."""
+    remainder: dict[str, list[int]] = {}
+    for row in rows:
+        if respect_document_boundaries:
+            remainder = {}
+        for key, values in row.items():
+            if key != "labels":
+                remainder.setdefault(key, []).extend(values)
+        packed_length = len(remainder["input_ids"]) // block_size * block_size
+        for offset in range(0, packed_length, block_size):
+            block = {
+                key: values[offset : offset + block_size]
+                for key, values in remainder.items()
+            }
+            block["labels"] = block["input_ids"][:]
+            yield block
+        remainder = {key: values[packed_length:] for key, values in remainder.items()}
+
+
+def _pack_sources(sources, *, block_size, respect_document_boundaries):
+    for source in sources:
+        yield from _pack_rows(
+            iter(source),
+            block_size=block_size,
+            respect_document_boundaries=respect_document_boundaries,
+        )
+
+
+def _pack_examples(source, *, block_size, respect_document_boundaries):
+    source._init_state_dict()
+    rows = (row for _, row in source)
+    yield from enumerate(
+        _pack_rows(
+            rows,
+            block_size=block_size,
+            respect_document_boundaries=respect_document_boundaries,
+        )
+    )
+
+
+class _PackedExamplesIterable(ExamplesIterable):
+    """HF adapter that preserves source shuffling, sharding, and epoch handling.
+
+    ExamplesIterable supplies checkpoint replay; packing state lives solely in
+    the generator. Keep the dependency on HF iterable internals in this adapter.
+    """
+
+    def __init__(self, source, *, block_size, respect_document_boundaries):
+        super().__init__(
+            _pack_examples,
+            dict(
+                source=source,
+                block_size=block_size,
+                respect_document_boundaries=respect_document_boundaries,
+            ),
+        )
+
+    @property
+    def ex_iterable(self):
+        return self.kwargs["source"]
+
+    @ex_iterable.setter
+    def ex_iterable(self, source):
+        self.kwargs["source"] = source
+
+    def _with_source(self, source):
+        return type(self)(
+            source, **{k: v for k, v in self.kwargs.items() if k != "source"}
+        )
+
+    def shuffle_data_sources(self, generator):
+        return self._with_source(self.kwargs["source"].shuffle_data_sources(generator))
+
+    def shard_data_sources(self, num_shards, index, contiguous=True):
+        return self._with_source(
+            self.kwargs["source"].shard_data_sources(
+                num_shards,
+                index,
+                contiguous=contiguous,
+            )
+        )
+
+    def reshard_data_sources(self):
+        return self._with_source(self.ex_iterable.reshard_data_sources())
+
+    @property
+    def num_shards(self):
+        return self.kwargs["source"].num_shards
 
 
 def chunk_into_blocks(
@@ -71,63 +155,49 @@ def chunk_into_blocks(
     num_proc: int | None = 4,
     map_batch_size: int = 1000,
 ):
-    """Split token streams into ``block_size`` chunks with labels.
+    """Pack tokenized rows into causal-LM blocks with iterator-local state.
 
-    When ``respect_document_boundaries`` is True (default), each Hub row is
-    chunked independently — a training block never spans two documents.
-    Per-document remainders shorter than ``block_size`` are dropped.
-
-    When False, token streams are concatenated across rows in each map batch
-    before slicing (classic packing). Prefer this for short-row corpora such
-    as WikiText where most rows are shorter than ``block_size``.
+    Document-bounded packing drops each document's incomplete tail. Otherwise
+    tails carry across rows until the iterator (or processing shard) ends.
+    ``map_batch_size`` is retained for compatibility; packing reads rows lazily.
     """
+    if block_size < 1:
+        raise ValueError("block_size must be >= 1")
+    if num_proc is not None and num_proc < 1:
+        raise ValueError("num_proc must be >= 1 when set")
     is_streaming = isinstance(tokenized, IterableDataset)
-
-    remainder: dict[str, list] = {}
-
-    def group_texts(examples):
-        if respect_document_boundaries:
-            chunks = {key: [] for key in examples}
-            for i in range(len(examples["input_ids"])):
-                for key, values_list in examples.items():
-                    chunks[key].extend(_chunk_document(values_list[i], block_size))
-            if not chunks["input_ids"]:
-                return {key: [] for key in examples}
-            chunks["labels"] = [ids[:] for ids in chunks["input_ids"]]
-            return chunks
-
-        concatenated = {
-            key: remainder.get(key, []) + sum(examples[key], [])
-            for key in examples
-        }
-        total_length = len(concatenated["input_ids"])
-        if total_length < block_size:
-            remainder.clear()
-            remainder.update(concatenated)
-            return {key: [] for key in concatenated}
-        packed_length = (total_length // block_size) * block_size
-        chunks = {
-            key: [
-                values[i : i + block_size]
-                for i in range(0, packed_length, block_size)
-            ]
-            for key, values in concatenated.items()
-        }
-        remainder.clear()
-        remainder.update(
-            {key: values[packed_length:] for key, values in concatenated.items()}
+    features = tokenized.features
+    if features is not None:
+        features = Features({**features, "labels": features["input_ids"]})
+    options = dict(
+        block_size=block_size,
+        respect_document_boundaries=respect_document_boundaries,
+    )
+    if is_streaming:
+        info = tokenized.info.copy()
+        info.features = features
+        return IterableDataset(
+            _PackedExamplesIterable(tokenized._ex_iterable, **options),
+            info=info,
+            split=tokenized.split,
+            distributed=tokenized._distributed,
+            token_per_repo_id=tokenized._token_per_repo_id,
         )
-        chunks["labels"] = chunks["input_ids"].copy()
-        return chunks
-
-    kwargs: dict[str, Any] = {"batched": True, "batch_size": map_batch_size}
-    if not is_streaming and num_proc is not None:
-        boundary = "doc-bounded" if respect_document_boundaries else "packed"
-        kwargs.update(
-            num_proc=num_proc,
-            desc=f"Chunking into {block_size}-token blocks ({boundary})",
+    count = min(num_proc or 1, max(1, len(tokenized)))
+    sources = [tokenized.shard(num_shards=count, index=i) for i in range(count)]
+    kwargs = dict(sources=sources, **options)
+    # HF's generator reader rejects an empty split, even with a schema.
+    if next(_pack_sources(**kwargs), None) is None:
+        return Dataset.from_dict(
+            {key: [] for key in [*tokenized.column_names, "labels"]},
+            features=features,
         )
-    return tokenized.map(group_texts, **kwargs)
+    return Dataset.from_generator(
+        _pack_sources,
+        gen_kwargs=kwargs,
+        features=features,
+        num_proc=num_proc,
+    )
 
 
 def tokenize_and_chunk(

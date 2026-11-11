@@ -156,7 +156,7 @@ def build_run_config_payload(
     extra: dict[str, Any] | None = None,
 ) -> dict[str, Any]:
     """JSON-serializable resolved experiment config for offline reproduction."""
-    from alien_ink.com.wb import serialize_config
+    from alien_ink.com.serialization import serialize_config
 
     payload: dict[str, Any] = {
         "run_label": run_label,
@@ -168,7 +168,7 @@ def build_run_config_payload(
         "tokens_per_optimizer_step": tokens_per_step,
     }
     if model_size is not None:
-        payload["model"] = model_size.as_dict()
+        payload["model_size"] = model_size.as_dict()
     for name, cfg in configs.items():
         payload[name] = serialize_config(cfg)
     if extra:

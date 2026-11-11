@@ -12,34 +12,20 @@ from dataclasses import dataclass, field, replace
 from pathlib import Path
 from typing import Any
 
-from datasets import IterableDataset
-from transformers import set_seed
-
-from alien_ink.com.device import (
-    collect_accelerator_info,
-    distributed_world_size,
-    introspect,
-)
-from alien_ink.com.env import load_env
+from alien_ink.com.device import distributed_world_size
+from alien_ink.com.log import get_logger
 from alien_ink.hf.curriculum import Curriculum, prepare_curriculum_datasets
-from alien_ink.hf.ds import PretrainDataConfig, load_train_eval, uses_completion_eval
-from alien_ink.hf.metrics import (
-    build_run_config_payload,
-    collect_software_versions,
-    count_model_params,
-    save_run_config,
-)
+from alien_ink.hf.ds import PretrainDataConfig
+from alien_ink.hf.ds import prepare_lm_datasets as prepare_lm_datasets
+from alien_ink.hf.metrics import count_model_params
 from alien_ink.hf.model import CausalLmArchConfig, build_model_and_tokenizer, gpt2_arch
-from alien_ink.hf.tok import tokenize_and_chunk
-from alien_ink.hf.trainer import (
-    CausalLmTrainerConfig,
-    build_causal_lm_trainer,
-    reporting_disabled,
-    tokens_per_optimizer_step,
-    train_and_save,
+from alien_ink.hf.runtime import (
+    initialize_run,
+    log_training_banner,
+    resolve_trainer_config,
+    run_training,
 )
-from alien_ink.com.log import banner, blank, detail, get_logger, header, step
-from alien_ink.com.wb import build_run_config, require_wandb_identity, set_wandb_dir, wandb_run
+from alien_ink.hf.trainer import CausalLmTrainerConfig
 
 log = get_logger("hf.pretrain")
 
@@ -106,81 +92,9 @@ def resolve_use_wandb(
     use_wandb: bool | None,
 ) -> bool:
     """Resolve whether to start a W&B run (explicit flag wins over ``report_to``)."""
-    if use_wandb is not None:
-        return use_wandb
-    return not reporting_disabled(config.trainer.report_to)
+    from alien_ink.hf.runtime import resolve_use_wandb as resolve
 
-
-def prepare_lm_datasets(
-    data: PretrainDataConfig,
-    tokenizer,
-    *,
-    verbose: bool = True,
-    add_special_tokens: bool = True,
-):
-    """Load/tokenize a Hub corpus into train and eval LM blocks.
-
-    Train is an iterable stream when ``mode='stream'``, otherwise a
-    materialized map-style dataset. Eval is always map-style.
-
-    When ``data.completion_eval_path`` is set, train uses the full
-    Hub split and eval is built from that JSON.
-    """
-    from alien_ink.hf.eval import build_completion_eval_dataset
-
-    train_raw, eval_raw = load_train_eval(data, verbose=verbose)
-    if verbose:
-        blank(logger=log)
-        if isinstance(train_raw, IterableDataset):
-            step("Preprocessing datasets (train streams lazily)...", logger=log)
-        else:
-            step("Preprocessing datasets...", logger=log)
-    train_text_column = data.source.text_column
-    train_dataset = tokenize_and_chunk(
-        train_raw,
-        tokenizer,
-        block_size=data.block_size,
-        text_column=train_text_column,
-        respect_document_boundaries=data.respect_document_boundaries,
-        num_proc=data.tokenizer_num_proc,
-    )
-    if uses_completion_eval(data):
-        assert data.completion_eval_path is not None
-        if verbose:
-            step(
-                f"Building completion eval from {data.completion_eval_path}...",
-                logger=log,
-            )
-        eval_dataset = build_completion_eval_dataset(
-            data.completion_eval_path,
-            tokenizer,
-            add_special_tokens=add_special_tokens,
-            max_samples=data.max_eval_samples,
-        )
-        if verbose:
-            if not isinstance(train_dataset, IterableDataset):
-                detail(f"train blocks: {len(train_dataset):,}", logger=log)
-            detail(f"eval examples: {len(eval_dataset):,} (completion JSON)", logger=log)
-        return train_dataset, eval_dataset
-
-    eval_text_column = (data.eval_source or data.source).text_column
-    eval_dataset = tokenize_and_chunk(
-        eval_raw,
-        tokenizer,
-        block_size=data.block_size,
-        text_column=eval_text_column,
-        respect_document_boundaries=data.respect_document_boundaries,
-        num_proc=data.tokenizer_num_proc,
-    )
-    if verbose:
-        if not isinstance(train_dataset, IterableDataset):
-            detail(f"train blocks: {len(train_dataset):,}", logger=log)
-        detail(f"eval blocks:  {len(eval_dataset):,}", logger=log)
-    if len(eval_dataset) == 0:
-        raise ValueError(
-            "No eval blocks produced; increase max_eval_samples or lower block_size."
-        )
-    return train_dataset, eval_dataset
+    return resolve(config.trainer, use_wandb)
 
 
 def log_pretrain_banner(
@@ -194,51 +108,15 @@ def log_pretrain_banner(
 
     Returns ``(AcceleratorInfo, tokens_per_step)``.
     """
-    header(logger=log)
-
-    accel = collect_accelerator_info(
-        prefer_bf16=config.trainer.prefer_bf16,
-        prefer_fp16=config.trainer.prefer_fp16,
-    )
-    for line in introspect(info=accel).splitlines():
-        log.info(line)
-    blank(logger=log)
-
-    banner(title, logger=log)
-    step(f"run: {run_label}", logger=log)
-    if zdeck_name:
-        detail(f"zdeck: {zdeck_name}", logger=log)
-
-    world_size = accel.world_size or distributed_world_size()
-    tps = tokens_per_optimizer_step(
-        per_device_train_batch_size=config.trainer.per_device_train_batch_size,
-        gradient_accumulation_steps=config.trainer.gradient_accumulation_steps,
+    return log_training_banner(
+        title=title,
+        run_label=run_label,
+        zdeck_name=zdeck_name,
+        trainer=config.trainer,
         block_size=config.data.block_size,
-        world_size=world_size,
+        model_label=f"model family: {config.arch.family}",
+        action="Training",
     )
-    detail(f"model family: {config.arch.family}", logger=log)
-    if config.trainer.uses_epochs():
-        step(
-            f"Training epochs: {config.trainer.num_train_epochs:g} "
-            f"(~{tps:,} tokens/step)",
-            logger=log,
-        )
-    else:
-        step(
-            f"Training steps: {config.trainer.max_steps:,} "
-            f"(~{tps:,} tokens/step, "
-            f"~{config.trainer.max_steps * tps:,} tokens total)",
-            logger=log,
-        )
-    if config.trainer.gradient_checkpointing:
-        step("Gradient checkpointing enabled", logger=log)
-    if config.trainer.torch_compile:
-        step("torch.compile enabled", logger=log)
-    if config.trainer.tf32 is True:
-        step("TF32 enabled", logger=log)
-    if config.trainer.optim != "adamw_torch":
-        detail(f"optimizer: {config.trainer.optim}", logger=log)
-    return accel, tps
 
 
 def pretrain(
@@ -274,37 +152,25 @@ def pretrain(
     when training stops (completed, interrupted, or failed) under
     ``trainer.output_dir``.
     """
-    env_files = env_files if env_files is not None else (Path.cwd() / ".env",)
-
-    if resume_from_checkpoint is not None:
-        config = with_trainer(config, resume_from_checkpoint=resume_from_checkpoint)
-
-    want_wandb = resolve_use_wandb(config, use_wandb)
-    if not want_wandb and not reporting_disabled(config.trainer.report_to):
-        config = with_trainer(config, report_to="none")
-
-    if want_wandb:
-        require_wandb_identity(entity=wandb_entity, project=wandb_project)
-
+    trainer_config, want_wandb = resolve_trainer_config(
+        config.trainer,
+        use_wandb=use_wandb,
+        wandb_name=wandb_name,
+        resume_from_checkpoint=resume_from_checkpoint,
+    )
+    config = replace(config, trainer=trainer_config)
     config.validate()
     accel, tokens_per_step = log_pretrain_banner(
         title=title, run_label=run_label, zdeck_name=zdeck_name, config=config
     )
 
-    blank(logger=log)
-    step("Loading credentials...", logger=log)
-    env = load_env(
-        *env_files,
+    env = initialize_run(
+        config.trainer,
+        env_files=env_files,
         wandb_entity=wandb_entity,
         wandb_project=wandb_project,
+        enabled=want_wandb,
     )
-
-    if wandb_name and wandb_name != config.trainer.run_name:
-        config = with_trainer(config, run_name=wandb_name)
-
-    set_seed(config.trainer.seed)
-    if want_wandb:
-        set_wandb_dir(config.trainer.output_dir)
     model, tokenizer = build_model_and_tokenizer(config.arch)
     model_size = count_model_params(model, vocab_size=tokenizer.vocab_size)
     if isinstance(config.data, Curriculum):
@@ -330,57 +196,18 @@ def pretrain(
     if extra_configs:
         log_configs.update(dict(extra_configs))
 
-    config_payload = build_run_config_payload(
-        run_label=run_label,
-        run_name=config.trainer.run_name,
-        title=title,
-        configs=log_configs,
-        accelerator=accel,
-        model_size=model_size,
-        tokens_per_step=tokens_per_step,
-    )
-    blank(logger=log)
-    step("Writing run config...", logger=log)
-    save_run_config(config.trainer.output_dir, config_payload)
-
-    trainer = build_causal_lm_trainer(
+    return run_training(
         model=model,
         tokenizer=tokenizer,
         train_dataset=train_dataset,
         eval_dataset=eval_dataset,
         config=config.trainer,
-    )
-    software = collect_software_versions()
-    run_config = build_run_config(
+        log_configs=log_configs,
         run_label=run_label,
+        title=title,
         env=env,
-        configs=log_configs,
-        prefer_bf16=config.trainer.prefer_bf16,
-        prefer_fp16=config.trainer.prefer_fp16,
-        accelerator=accel,
+        accel=accel,
         tokens_per_step=tokens_per_step,
-        model=model_size.as_dict(),
-        software=software,
+        model_size=model_size,
+        want_wandb=want_wandb,
     )
-
-    blank(logger=log)
-    with wandb_run(
-        entity=env.wandb_entity or "",
-        project=env.wandb_project or "",
-        name=config.trainer.run_name,
-        config=run_config,
-        dir=config.trainer.output_dir,
-        enabled=want_wandb,
-    ):
-        return train_and_save(
-            trainer=trainer,
-            tokenizer=tokenizer,
-            output_dir=config.trainer.output_dir,
-            resume_from_checkpoint=config.trainer.resume_from_checkpoint,
-            run_name=config.trainer.run_name,
-            run_label=run_label,
-            max_steps=config.trainer.max_steps,
-            tokens_per_step=tokens_per_step,
-            model_size=model_size,
-            accelerator=accel,
-        )
