@@ -128,6 +128,16 @@ class Curriculum:
             config.validate()
 
 
+def _checked_blocks(blocks, num_samples):
+    count = 0
+    for row in blocks:
+        yield row
+        count += 1
+        if count == num_samples:
+            return
+    raise ValueError(f"streamed phase expected {num_samples} blocks, got {count}")
+
+
 def bounded_phase_blocks(blocks, *, num_samples: int) -> IterableDataset:
     """Bound one phase's block dataset to exactly ``num_samples`` rows.
 
@@ -137,7 +147,9 @@ def bounded_phase_blocks(blocks, *, num_samples: int) -> IterableDataset:
     if num_samples < 1:
         raise ValueError(f"num_samples must be >= 1, got {num_samples}")
     if isinstance(blocks, IterableDataset):
-        return blocks.take(num_samples)
+        return IterableDataset.from_generator(
+            _checked_blocks, gen_kwargs={"blocks": blocks, "num_samples": num_samples}
+        )
     if len(blocks) == 0:
         raise ValueError("phase produced no training blocks")
     return blocks.to_iterable_dataset().repeat(None).take(num_samples)
@@ -202,6 +214,12 @@ def _eval_blocks(
     *,
     verbose: bool,
 ) -> Dataset:
+    if data.completion_eval_path is not None:
+        from alien_ink.hf.completion import build_completion_eval_dataset
+
+        return build_completion_eval_dataset(
+            data.completion_eval_path, tokenizer, max_samples=data.max_eval_samples
+        )
     _, eval_raw = load_train_eval(data, verbose=verbose)
     eval_dataset = tokenize_and_chunk(
         eval_raw,

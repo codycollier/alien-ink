@@ -477,13 +477,18 @@ def build_lm_data_collator(tokenizer):
     def collate(features: list[dict[str, Any]]) -> dict[str, Any]:
         if not features:
             raise ValueError("cannot collate an empty feature list")
+        features = [dict(feature) for feature in features]
         has_labels = "labels" in features[0]
         labels_list = [feature.pop("labels") for feature in features] if has_labels else None
         batch = tokenizer.pad(features, return_tensors="pt")
         if labels_list is not None:
             max_len = int(batch["input_ids"].shape[1])
             padded = [
-                list(labels) + [-100] * (max_len - len(labels)) for labels in labels_list
+                (
+                    [-100] * (max_len - len(labels)) + list(labels)
+                    if getattr(tokenizer, "padding_side", "right") == "left"
+                    else list(labels) + [-100] * (max_len - len(labels))
+                ) for labels in labels_list
             ]
             batch["labels"] = torch.tensor(padded, dtype=torch.long)
         else:
@@ -521,6 +526,28 @@ class ModuleKeyedTrainer(Trainer):
             del self.model.__dict__["save_pretrained"]
 
 
+class SaveImprovementCallback(TrainerCallback):
+    """Preserve improvements between scheduled checkpoint writes."""
+
+    def on_evaluate(self, args, state, control, metrics=None, **kwargs):
+        metric = args.metric_for_best_model
+        if not metric:
+            return control
+        metric = metric if metric.startswith("eval_") else f"eval_{metric}"
+        value = (metrics or {}).get(metric)
+        if value is not None and (
+            state.best_metric is None
+            or (value > state.best_metric if args.greater_is_better else value < state.best_metric)
+        ):
+            control.should_save = True
+        return control
+
+
+class SessionStartCallback(TrainerCallback):
+    def on_train_begin(self, args, state, control, **kwargs):
+        self.start_global_step = state.global_step
+
+
 class ConsecutiveLossThresholdCallback(TrainerCallback):
     """Stop after a loss metric stays at/below a threshold for N eval steps."""
 
@@ -556,7 +583,7 @@ def build_trainer_callbacks(
     *,
     has_eval: bool,
 ) -> list:
-    callbacks = []
+    callbacks = [SaveImprovementCallback()] if has_eval else []
     if has_eval and config.uses_epochs():
         callbacks.append(_EpochEndEvalCallback())
     if has_eval and config.early_stopping_patience > 0:
@@ -650,6 +677,7 @@ def summarize_training(
     accelerator: AcceleratorInfo,
     train_metrics: dict[str, Any] | None = None,
     train_loss: float | None = None,
+    start_global_step: int = 0,
 ) -> RunSummary:
     """Build, persist, log, and (if active) push an end-of-run summary."""
     summary = build_run_summary(
@@ -660,6 +688,7 @@ def summarize_training(
         max_steps=max_steps,
         tokens_per_step=tokens_per_step,
         train_runtime_sec=None,
+        start_global_step=start_global_step,
         train_loss=train_loss,
         model_size=model_size,
         accelerator=accelerator,
@@ -700,6 +729,9 @@ def train_and_save(
     train_loss: float | None = None
     train_error: BaseException | None = None
 
+    session = SessionStartCallback()
+    if hasattr(trainer, "add_callback"):
+        trainer.add_callback(session)
     try:
         train_result = trainer.train(resume_from_checkpoint=resume_from_checkpoint)
         train_metrics = dict(getattr(train_result, "metrics", None) or {})
@@ -733,6 +765,7 @@ def train_and_save(
             accelerator=accelerator,
             train_metrics=train_metrics,
             train_loss=train_loss,
+            start_global_step=getattr(session, "start_global_step", 0),
         )
 
     if train_error is not None:

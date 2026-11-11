@@ -97,6 +97,37 @@ def _pack_examples(source, *, block_size, respect_document_boundaries):
     )
 
 
+def _fixed_examples(source):
+    source._init_state_dict()
+    yield from source
+
+
+class _FixedExamplesIterable(ExamplesIterable):
+    """Keep partition RNGs fixed while retaining native shard assignment."""
+
+    def __init__(self, source):
+        super().__init__(_fixed_examples, {"source": source})
+
+    @property
+    def num_shards(self):
+        return self.kwargs["source"].num_shards
+
+    def shuffle_data_sources(self, generator):
+        return self
+
+    def shard_data_sources(self, num_shards, index, contiguous=True):
+        return type(self)(self.kwargs["source"].shard_data_sources(
+            num_shards, index, contiguous=contiguous
+        ))
+
+
+def _has_fixed_partition(source):
+    if getattr(source, "block_sources_order_when_shuffling", False):
+        return True
+    child = getattr(source, "ex_iterable", None)
+    return child is not None and _has_fixed_partition(child)
+
+
 class _PackedExamplesIterable(ExamplesIterable):
     """HF adapter that preserves source shuffling, sharding, and epoch handling.
 
@@ -105,6 +136,8 @@ class _PackedExamplesIterable(ExamplesIterable):
     """
 
     def __init__(self, source, *, block_size, respect_document_boundaries):
+        if _has_fixed_partition(source):
+            source = _FixedExamplesIterable(source)
         super().__init__(
             _pack_examples,
             dict(

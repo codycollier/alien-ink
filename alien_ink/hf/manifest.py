@@ -564,8 +564,13 @@ class Manifest:
                 "schedule": self.schedule,
                 "wandb": self.wandb,
             },
-            **stage_kwargs,
         )
+        extra = stage_kwargs.pop("extra_configs", {}) or {}
+        shared_kwargs["extra_configs"].update(extra)
+        shared_kwargs.update(stage_kwargs)
+        effective = self
+        if stage_kwargs.get("use_wandb") is False:
+            effective = self.with_wandb(enabled=False)
         if self.stage == "sft":
-            return finetune(self.to_sft_config(), **shared_kwargs)
-        return pretrain(self.to_pretrain_config(), **shared_kwargs)
+            return finetune(effective.to_sft_config(), **shared_kwargs)
+        return pretrain(effective.to_pretrain_config(), **shared_kwargs)

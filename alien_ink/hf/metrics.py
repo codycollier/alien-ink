@@ -47,6 +47,10 @@ class RunSummary:
     max_steps: int
     tokens_per_step: int
     tokens_trained: int
+    start_global_step: int
+    session_steps: int
+    session_tokens: int
+    session_flops: float
 
     # Time / throughput
     train_runtime_sec: float | None
@@ -212,6 +216,7 @@ def build_run_summary(
     model_size: ModelSize,
     accelerator: AcceleratorInfo,
     trainer_metrics: dict[str, Any] | None = None,
+    start_global_step: int = 0,
     samples_per_sec: float | None = None,
     steps_per_sec: float | None = None,
 ) -> RunSummary:
@@ -228,11 +233,13 @@ def build_run_summary(
         train_loss = _first_float(metrics, "train_loss")
 
     tokens_trained = int(global_step) * int(tokens_per_step)
+    session_steps = max(0, global_step - start_global_step)
+    session_tokens = session_steps * tokens_per_step
+    session_flops = estimate_train_flops(non_embedding_params=model_size.non_embedding_params, tokens=session_tokens)
     tokens_per_sec: float | None = None
     if runtime is not None and runtime > 0:
-        tokens_per_sec = tokens_trained / runtime
-        if steps_per_sec is None:
-            steps_per_sec = global_step / runtime
+        tokens_per_sec = session_tokens / runtime
+        steps_per_sec = session_steps / runtime
 
     flops_total = estimate_train_flops(
         non_embedding_params=model_size.non_embedding_params,
@@ -242,7 +249,7 @@ def build_run_summary(
     tflops_per_sec: float | None = None
     mfu: float | None = None
     if runtime is not None and runtime > 0:
-        flops_per_sec = flops_total / runtime
+        flops_per_sec = session_flops / runtime
         tflops_per_sec = flops_per_sec / 1e12
         if accelerator.peak_tflops and accelerator.peak_tflops > 0:
             mfu = tflops_per_sec / accelerator.peak_tflops
@@ -255,6 +262,10 @@ def build_run_summary(
         max_steps=int(max_steps),
         tokens_per_step=int(tokens_per_step),
         tokens_trained=tokens_trained,
+        start_global_step=start_global_step,
+        session_steps=session_steps,
+        session_tokens=session_tokens,
+        session_flops=session_flops,
         train_runtime_sec=runtime,
         steps_per_sec=steps_per_sec,
         tokens_per_sec=tokens_per_sec,
