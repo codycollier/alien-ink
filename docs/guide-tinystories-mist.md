@@ -46,6 +46,22 @@ python -m alien_ink.zdeck.pre_tinystories_33m_5k_mist
 Each run evaluates and saves every 250 optimizer steps under
 `output/train/pre-tinystories-<size>-5k-mist/`. Checkpoints include the tokenizer.
 
+## Train the 1M model for one full epoch
+
+```sh
+python -m alien_ink.zdeck.pre_tinystories_1m_1ep_mist
+# Or launch it in the background with a timestamped log.
+./bin/mist-train-pretrain-general.sh --tinystories-1m-1ep
+```
+
+This deck downloads and packs the full pinned training split before training.
+It uses the packed block count to determine the epoch length and checkpoint
+cadence. The validation sample comes from the official validation split with
+the same seed and row limit as the 5,000-step run. The complete and streaming
+loaders use different shuffle algorithms, so the sampled rows can differ.
+Outputs go to `output/train/pre-tinystories-1m-1ep-mist/`. Use
+`pre_tinystories_1m_1ep_mist` as the deck name with the chat or evaluation helper.
+
 ## Compare the runs
 
 In each run's latest numbered checkpoint, read `trainer_state.json` and compare

@@ -16,6 +16,7 @@ from alien_ink.hf import ds
 from alien_ink.hf.gen import generate_completion_result
 from alien_ink.hf.model import build_model_from_scratch, load_pretrained_model, load_tokenizer
 from alien_ink.hf.tok import tokenize_and_chunk
+from alien_ink.zdeck.pre_tinystories_1m_1ep_mist import MANIFEST as EPOCH_MANIFEST
 from alien_ink.zdeck.pre_tinystories_1m_5k_mist import MANIFEST
 
 STORIES = ["A cat sat.", "A dog ran.", "They met.", "Café ☕."]
@@ -100,36 +101,49 @@ def test_parameter_counts(size, count, tokenizer):
     assert model.config.use_cache is False
 
 
-def test_offline_training_checkpoint_and_generation(tmp_path, tokenizer):
+@pytest.mark.parametrize("mode", ["stream", "complete"])
+def test_offline_training_checkpoint_and_generation(tmp_path, tokenizer, mode):
     path, _ = tokenizer
     subprocess.run(
-        [sys.executable, str(Path(__file__).resolve()), str(path)],
+        [sys.executable, str(Path(__file__).resolve()), str(path), mode],
         cwd=tmp_path,
         env={**os.environ, "CUDA_VISIBLE_DEVICES": "", "OMP_NUM_THREADS": "2"},
         check=True,
     )
 
 
-def run_cpu_fixture(path):
+def run_cpu_fixture(path, mode):
     tok = load_tokenizer(path)
     raw = Dataset.from_dict({"text": STORIES * 8})
+    manifest = EPOCH_MANIFEST if mode == "complete" else MANIFEST
     run = (
-        MANIFEST.variant(run_name="tinystories-cpu-fixture")
+        manifest.variant(run_name="tinystories-cpu-fixture")
         .with_data(block_size=8, max_eval_samples=8)
         .with_model(tokenizer_name=str(path), n_positions=16, local_attention_window=4,
                     n_embd=16, n_layer=2, n_head=2, intermediate_size=32)
         .with_hardware(per_device_train_batch_size=2, per_device_eval_batch_size=2,
                        gradient_accumulation_steps=1, tf32=False, prefer_bf16=False,
                        prefer_fp16=False)
-        .with_schedule(max_steps=1, warmup_steps=0, eval_steps=1, save_steps=1, logging_steps=1)
+        .with_schedule(warmup_steps=0)
         .with_trainer_knobs(logging_nan_inf_filter=False)
     )
-    with patch.object(ds, "stream_hub_text", side_effect=lambda *a, **kw: raw.to_iterable_dataset()):
+    if mode == "stream":
+        run = run.with_schedule(max_steps=1, eval_steps=1, save_steps=1, logging_steps=1)
+    with (
+        patch.object(ds, "stream_hub_text", side_effect=lambda *a, **kw: raw.to_iterable_dataset()),
+        patch.object(ds, "load_hub_text", return_value=raw),
+    ):
         trainer, summary = run.train()
-    assert summary.global_step == 1
+    if mode == "complete":
+        token_count = sum(len(ids) + 1 for ids in tok(list(raw["text"])).input_ids)
+        blocks = token_count // run.data.block_size
+        assert summary.global_step == math.ceil(blocks / 2)
+        assert trainer.state.epoch == pytest.approx(1.0)
+    else:
+        assert summary.global_step == 1
     assert math.isfinite(summary.train_loss)
     assert any(math.isfinite(log.get("eval_loss", math.nan)) for log in trainer.state.log_history)
-    model, loaded = load_pretrained_model(run.output_dir() / "checkpoint-1", "cpu", family="gpt-neo")
+    model, loaded = load_pretrained_model(run.output_dir() / f"checkpoint-{summary.global_step}", "cpu", family="gpt-neo")
     assert loaded.get_vocab() == tok.get_vocab()
     assert model.get_input_embeddings().weight is model.get_output_embeddings().weight
     result = generate_completion_result(
@@ -139,4 +153,4 @@ def run_cpu_fixture(path):
 
 
 if __name__ == "__main__":
-    run_cpu_fixture(Path(sys.argv[1]))
+    run_cpu_fixture(Path(sys.argv[1]), sys.argv[2])

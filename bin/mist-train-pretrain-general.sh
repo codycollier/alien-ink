@@ -4,6 +4,9 @@
 # Uncomment one zdeck block below, then:
 #   ./bin/mist-train-pretrain-general.sh
 #
+# To launch the full-epoch TinyStories 1M deck directly:
+#   ./bin/mist-train-pretrain-general.sh --tinystories-1m-1ep
+#
 # W&B entity / project / name are set inside each zdeck module.
 # Use `module=...` for importable packages, or `script=...` for hyphenated
 # zdeck filenames that cannot be run with `python -m`.
@@ -50,6 +53,13 @@ module="alien_ink.zdeck.baseline_perf_gemma_mist"
 name="baseline-perf-gemma-mist"
 
 # ------------------------------------------------------------------------------
+
+if [[ "${1:-}" == "--tinystories-1m-1ep" ]]; then
+  module="alien_ink.zdeck.pre_tinystories_1m_1ep_mist"
+  script=""
+  name="pre-tinystories-1m-1ep-mist"
+  shift
+fi
 
 stamp=$(date +%Y%m%d-%H%M%S)
 log="output/train/${name}-${stamp}.log"
