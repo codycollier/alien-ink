@@ -13,7 +13,7 @@ factory that returns ``PretrainDataConfig`` to extend.
 from __future__ import annotations
 
 import itertools
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from pathlib import Path
 from typing import Literal
 
@@ -39,6 +39,7 @@ class HubTextSource:
     name: str | None = None
     split: str = "train"
     text_column: str = "text"
+    revision: str | None = None
 
 
 @dataclass(frozen=True)
@@ -337,6 +338,28 @@ def geo_us_states(*, max_eval_samples: int = 4) -> PretrainDataConfig:
     )
 
 
+def tinystories(*, max_eval_samples: int = 1_000) -> PretrainDataConfig:
+    """Stream the pinned TinyStories training split and pack across stories."""
+    source = HubTextSource(
+        dataset="roneneldan/TinyStories",
+        name="default",
+        split="train",
+        text_column="text",
+        revision="f54c09fd23315a6f9c86f9dc80f725de7d8f9c64",
+    )
+    return PretrainDataConfig(
+        source=source,
+        eval_source=replace(source, split="validation"),
+        mode="stream",
+        max_eval_samples=max_eval_samples,
+        stream_shuffle_buffer=10_000,
+        block_size=512,
+        respect_document_boundaries=False,
+        tokenizer_num_proc=1,
+        seed=101,
+    )
+
+
 def stream_hub_text(
     source: HubTextSource,
     *,
@@ -348,6 +371,8 @@ def stream_hub_text(
         "streaming": True,
         "trust_remote_code": trust_remote_code,
     }
+    if source.revision is not None:
+        kwargs["revision"] = source.revision
     if source.name is not None:
         return load_dataset(source.dataset, source.name, **kwargs)
     return load_dataset(source.dataset, **kwargs)
@@ -364,6 +389,8 @@ def load_hub_text(
         "streaming": False,
         "trust_remote_code": trust_remote_code,
     }
+    if source.revision is not None:
+        kwargs["revision"] = source.revision
     if source.name is not None:
         return load_dataset(source.dataset, source.name, **kwargs)
     return load_dataset(source.dataset, **kwargs)

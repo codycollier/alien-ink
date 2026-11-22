@@ -55,6 +55,7 @@ Identifies a text split on the Hugging Face Hub:
 | `name` | Config name, if the dataset has variants (e.g. `wikitext-103-v1`, `en`) |
 | `split` | Split to read (`train`, `validation`, …) |
 | `text_column` | Column containing raw text (almost always `"text"`) |
+| `revision` | Optional Hub revision for the split |
 
 ### `PretrainDataConfig`
 
@@ -145,6 +146,7 @@ tokenizer, and VRAM detail.
 | Family | HF model class | Default tokenizer | Zdeck dims |
 |---|---|---|---|
 | `gpt-2` | `GPT2LMHeadModel` | `gpt2` | 12 layers, 768 embd, 12 heads, 1024 positions |
+| `gpt-neo` | `GPTNeoForCausalLM` | Local TinyStories byte-level BPE | [1M, 3M, and 33M TinyStories runs](guide-tinystories-mist.md) |
 | `gpt-neox` | `GPTNeoXForCausalLM` | `EleutherAI/gpt-neox-20b` | same as GPT-2 |
 | `pythia` | `GPTNeoXForCausalLM` | `EleutherAI/pythia-70m` / `-160m` | published EleutherAI shapes |
 | `llama` | `LlamaForCausalLM` | `HuggingFaceTB/SmolLM2-135M` | SmolLM2-135M shape (30 × 576) |

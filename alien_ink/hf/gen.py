@@ -91,6 +91,7 @@ def _gemma_gen_config() -> GenConfig:
 
 _GEN_CONFIG_BY_FAMILY: dict[ModelFamily, GenConfig] = {
     "gpt-2": _default_gen_config(),
+    "gpt-neo": _default_gen_config(),
     "gpt-neox": _default_gen_config(),
     "pythia": _default_gen_config(),
     "llama": _default_gen_config(),

@@ -1,6 +1,6 @@
 """Causal-LM construction and checkpoint loading via Hugging Face Transformers.
 
-Supports from-scratch GPT-2, GPT-NeoX, Pythia, Gemma, and Llama-style
+Supports from-scratch GPT-2, GPT-Neo, GPT-NeoX, Pythia, Gemma, and Llama-style
 (SmolLM2) architectures sized for a local ~8 GB GPU. Add a new ``family``
 branch in ``build_model_from_scratch`` to extend.
 
@@ -23,6 +23,8 @@ from transformers import (
     GemmaForCausalLM,
     GPT2Config,
     GPT2LMHeadModel,
+    GPTNeoConfig,
+    GPTNeoForCausalLM,
     GPTNeoXConfig,
     GPTNeoXForCausalLM,
     LlamaConfig,
@@ -36,11 +38,11 @@ from alien_ink.com.log import detail, get_logger, step
 
 log = get_logger("hf.model")
 
-ModelFamily = Literal["gpt-2", "gpt-neox", "pythia", "gemma", "llama"]
+ModelFamily = Literal["gpt-2", "gpt-neo", "gpt-neox", "pythia", "gemma", "llama"]
 AttentionImplementation = Literal["eager", "sdpa"]
 
 _VALID_FAMILIES: frozenset[str] = frozenset(
-    {"gpt-2", "gpt-neox", "pythia", "gemma", "llama"}
+    {"gpt-2", "gpt-neo", "gpt-neox", "pythia", "gemma", "llama"}
 )
 # Families that use partial rotary embeddings (NeoX-style rotary_pct).
 _ROTARY_PCT_FAMILIES: frozenset[str] = frozenset({"gpt-neox", "pythia"})
@@ -157,6 +159,7 @@ class CausalLmArchConfig:
     # remains available as a compatibility escape hatch.
     attention_implementation: AttentionImplementation = "sdpa"
     use_cache: bool = False
+    local_attention_window: int | None = None
 
     def validate(self) -> None:
         if self.family not in _VALID_FAMILIES:
@@ -166,6 +169,13 @@ class CausalLmArchConfig:
             )
         if self.n_positions < 1:
             raise ValueError(f"n_positions must be >= 1, got {self.n_positions}")
+        if self.local_attention_window is not None:
+            if self.family != "gpt-neo":
+                raise ValueError("local_attention_window is only supported for gpt-neo")
+            if not 1 <= self.local_attention_window <= self.n_positions:
+                raise ValueError("local_attention_window must be between 1 and n_positions")
+        if self.family == "gpt-neo" and self.attention_implementation != "eager":
+            raise ValueError("gpt-neo requires eager attention")
         if self.n_embd < 1:
             raise ValueError(f"n_embd must be >= 1, got {self.n_embd}")
         if self.n_layer < 1:
@@ -347,6 +357,31 @@ def build_model_from_scratch(
             **special_token_ids,
         )
         model: PreTrainedModel = GPT2LMHeadModel(model_config)
+    elif arch.family == "gpt-neo":
+        attention_layers = [
+            ("global", "local")[index % 2] for index in range(arch.n_layer)
+        ]
+        neo_config = GPTNeoConfig(
+            vocab_size=vocab_size,
+            max_position_embeddings=arch.n_positions,
+            hidden_size=arch.n_embd,
+            num_layers=arch.n_layer,
+            num_heads=arch.n_head,
+            intermediate_size=arch.intermediate_size or 4 * arch.n_embd,
+            attention_types=[[attention_layers, 1]],
+            window_size=arch.local_attention_window or min(256, arch.n_positions),
+            activation_function=arch.hidden_act,
+            resid_dropout=arch.hidden_dropout,
+            embed_dropout=arch.hidden_dropout,
+            attention_dropout=arch.attention_dropout,
+            layer_norm_epsilon=arch.norm_epsilon,
+            initializer_range=arch.initializer_range,
+            tie_word_embeddings=arch.tie_word_embeddings,
+            attn_implementation=arch.attention_implementation,
+            use_cache=arch.use_cache,
+            **special_token_ids,
+        )
+        model = GPTNeoForCausalLM(neo_config)
     elif arch.family in {"gpt-neox", "pythia"}:
         # Pythia is the GPT-NeoX architecture (parallel residual, partial
         # rotary) with published sizes; it shares the NeoX config mapping.
@@ -496,6 +531,10 @@ def load_pretrained_model(
     tokenizer = load_tokenizer(model_path)
     if family == "gpt-2":
         model: PreTrainedModel = GPT2LMHeadModel.from_pretrained(model_path)
+    elif family == "gpt-neo":
+        model = GPTNeoForCausalLM.from_pretrained(
+            model_path, attn_implementation="eager"
+        )
     elif family in {"gpt-neox", "pythia"}:
         model = GPTNeoXForCausalLM.from_pretrained(model_path)
     elif family == "llama":

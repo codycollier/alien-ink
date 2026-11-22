@@ -51,7 +51,7 @@ def tokenize_text(
     kwargs: dict[str, Any] = {"batched": True, "remove_columns": cols}
     # Streaming datasets are processed lazily and cannot use multiprocessing
     # (num_proc) or a progress ``desc``.
-    if not is_streaming and num_proc is not None:
+    if not is_streaming and (num_proc or 1) > 1:
         kwargs.update(num_proc=num_proc, desc="Tokenizing")
     return dataset.map(tokenize_function, **kwargs)
 
@@ -229,7 +229,7 @@ def chunk_into_blocks(
         _pack_sources,
         gen_kwargs=kwargs,
         features=features,
-        num_proc=num_proc,
+        num_proc=count if count > 1 else None,
     )
 
 

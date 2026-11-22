@@ -83,6 +83,7 @@ class CausalLmTrainerConfig:
     adam_beta1: float = 0.9
     adam_beta2: float = 0.95
     logging_steps: int = 50
+    logging_nan_inf_filter: bool = True
     eval_steps: int = 1_000
     save_steps: int = 1_000
     save_total_limit: int = 2
@@ -435,6 +436,7 @@ def build_training_arguments(
         adam_beta2=config.adam_beta2,
         optim=config.optim,
         logging_steps=config.logging_steps,
+        logging_nan_inf_filter=config.logging_nan_inf_filter,
         eval_strategy=eval_strategy,
         eval_steps=config.eval_steps,
         save_strategy="steps",

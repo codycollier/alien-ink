@@ -6,7 +6,7 @@ Alien Ink trains small causal language models on Mist (a local RTX 3070,
 ~8 GB VRAM). Every training run is a fully explicit `Manifest` — data, model,
 hardware, wandb, schedule — archived as a program in the zdeck
 (`alien_ink/zdeck/`). Two stages exist today: `pre` (from-scratch pretraining
-of GPT-2, GPT-NeoX, Pythia, Llama/SmolLM2, and Gemma architectures) and `sft`
+of GPT-2, GPT-Neo, GPT-NeoX, Pythia, Llama/SmolLM2, and Gemma architectures) and `sft`
 (full-parameter fine-tuning of pretrained checkpoints).
 
 ## Doc types
@@ -25,6 +25,7 @@ of GPT-2, GPT-NeoX, Pythia, Llama/SmolLM2, and Gemma architectures) and `sft`
 | [Quickstart](guide-quickstart.md) | Setup, running zdeck programs, completions, evals — the daily commands |
 | [RTX 3070 training](guide-rtx-3070-training.md) | Mist playbook — batch/accumulation settings per family, benchmark discipline |
 | [Pythia on Mist](guide-pythia-chinchilla-mist.md) | OOM-safe Pythia options and Chinchilla token/step budgets for the RTX 3070 |
+| [TinyStories on Mist](guide-tinystories-mist.md) | Shared tokenizer, three GPT-Neo runs, GPU smoke check, and comparison |
 
 ## References
 
