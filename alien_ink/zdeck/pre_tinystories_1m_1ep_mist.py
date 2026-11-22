@@ -60,7 +60,7 @@ MANIFEST = Manifest(
         entity="logbook",
         project="ink-explore",
         name="pre-tinystories-1m-1ep-mist",
-        enabled=False,
+        enabled=True,
     ),
     schedule=ScheduleConfig(
         max_steps=-1,
